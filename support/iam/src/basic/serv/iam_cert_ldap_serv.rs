@@ -1,7 +1,7 @@
 use ldap3::log::{error, warn};
 use std::collections::HashMap;
 
-use self::ldap::{LdapClient, LdapSearchTree};
+use self::ldap::{LdapClient};
 use super::{iam_account_serv::IamAccountServ, iam_cert_serv::IamCertServ, iam_tenant_serv::IamTenantServ};
 use crate::basic::dto::iam_account_dto::{IamAccountAddByLdapResp, IamAccountAggModifyReq, IamAccountExtSysAddReq, IamAccountExtSysBatchAddReq};
 use crate::basic::dto::iam_cert_dto::IamThirdIntegrationConfigDto;
@@ -149,25 +149,25 @@ impl IamCertLdapServ {
                 ],
             )
             .await?;
-        let ldap_search_tree = LdapSearchTree::from_iter(result).expect("cant parse ldap search result as a tree");
-        if let Some(first_attrs) = ldap_search_tree.first_user_attrs() {
-            if first_attrs.get(&ldap_auth_info.account_field_map.field_user_name).is_none() {
-                return Err(funs.err().bad_request(
-                    "ldap_conf",
-                    "validate",
-                    &format!("ldap not have user_name field:{}", ldap_auth_info.account_field_map.field_user_name),
-                    "404-iam-ldap-user_name-valid-error",
-                ));
-            };
-            if first_attrs.get(&ldap_auth_info.account_field_map.field_display_name).is_none() {
-                return Err(funs.err().bad_request(
-                    "ldap_conf",
-                    "validate",
-                    &format!("ldap not have display_name field:{}", ldap_auth_info.account_field_map.field_display_name),
-                    "404-iam-ldap-display_name-valid-error",
-                ));
-            }
-        }
+        // let ldap_search_tree = LdapSearchTree::from_iter(result).expect("cant parse ldap search result as a tree");
+        // if let Some(first_attrs) = ldap_search_tree.first_user_attrs() {
+        //     if first_attrs.get(&ldap_auth_info.account_field_map.field_user_name).is_none() {
+        //         return Err(funs.err().bad_request(
+        //             "ldap_conf",
+        //             "validate",
+        //             &format!("ldap not have user_name field:{}", ldap_auth_info.account_field_map.field_user_name),
+        //             "404-iam-ldap-user_name-valid-error",
+        //         ));
+        //     };
+        //     if first_attrs.get(&ldap_auth_info.account_field_map.field_display_name).is_none() {
+        //         return Err(funs.err().bad_request(
+        //             "ldap_conf",
+        //             "validate",
+        //             &format!("ldap not have display_name field:{}", ldap_auth_info.account_field_map.field_display_name),
+        //             "404-iam-ldap-display_name-valid-error",
+        //         ));
+        //     }
+        // }
         ldap_client.unbind().await?;
         Ok(())
     }
@@ -1092,92 +1092,41 @@ pub(crate) mod ldap {
         }
     }
 
-    pub enum LdapSearchTree {
-        Domain { dc: String, children: HashMap<String, LdapSearchTree>},
-        User { cn: String, attrs: HashMap<String, Vec<String>> },
+    pub struct LdapDc(String);
+    pub enum LdapDnChildNode {
+        LdapDc(LdapDc),
+        LdapOu(LdapOu),
+        LdapCn(LdapCn),
     }
-
-    impl LdapSearchTree {
-        pub fn from_ldap_search_resp(ldap_search_resp: LdapSearchResp) -> Result<Self, String> {
-            use LdapSearchTree::*;
-            let LdapSearchResp { dn, attrs } = ldap_search_resp;
-            let (first_dn_seg, rest_dn_seg) = dn.split_once(",").ok_or("invalid dn".to_owned())?;
-            let first_node = if let Some(cn) = first_dn_seg.strip_prefix("cn=") {
-                User {
-                    cn: cn.to_owned(),
-                    attrs,
-                }
-            } else if let Some(dc) = dn.strip_prefix("dc=") {
-                Domain { dc: dc.to_owned(), children: HashMap::new() }
-            } else {
-                return Err("cant parse first segment".to_owned());
-            };
-
-            rest_dn_seg.split(',').map(str::trim).fold(Ok(first_node), |tree, seg| {
-                let tree = tree?;
-                seg.strip_prefix("dc=").ok_or(format!("invalid segment {seg}")).map(|dc| {
-                    let mut children = HashMap::new();
-                    children.insert(dc.to_owned(), tree);
-                    Domain { dc: dc.to_owned(), children }
-                })
-            })
+    pub struct LdapOu(String);
+    pub enum LdapOuChildNode {
+        LdapOu(LdapOu),
+        LdapCn(LdapCn),
+    }
+    pub struct LdapCn(String);
+    pub enum LdapCnChildNode {}
+    pub trait LdapTreeNodeType {
+        fn parse(seg: &str) -> Option<Self> where Self: Sized;
+    }
+    pub trait LdapChildNode<T: LdapTreeNodeType> {}
+    impl LdapChildNode<LdapDc> for LdapDc {}
+    impl LdapChildNode<LdapOu> for LdapDc {}
+    impl LdapChildNode<LdapCn> for LdapDc {}
+    impl LdapChildNode<LdapOu> for LdapOu {}
+    impl LdapChildNode<LdapCn> for LdapOu {}
+    impl LdapTreeNodeType for LdapDc {
+        fn parse(seg: &str) -> Option<Self> {
+            seg.strip_prefix("dc=").map(str::to_owned).map(LdapDc)
         }
-
-        pub fn merge(&mut self, another: &mut Self) -> Result<(), String> {
-            use LdapSearchTree::*;
-
-            match (self, another) {
-                (
-                    Domain {
-                        dc: dc_a,
-                        children: children_a,
-                    },
-                    Domain {
-                        dc: dc_b,
-                        children: children_b,
-                    },
-                ) => {
-                    if *dc_a == *dc_b {
-                        for (key, mut val_b) in children_b.drain() {
-                            if let Some(val_a) = children_a.get_mut(&key) {
-                                val_a.merge(&mut val_b)?;
-                            } else {
-                                children_a.insert(key.clone(), val_b);
-                            }
-                        }
-                        Ok(())
-                    } else {
-                        Err(format!("cant merge domain dc={dc_a} and domain dc={dc_b}"))
-                    }
-                }
-                (User { cn: cn_a, .. }, User { cn: cn_b, .. }) => {
-                    if *cn_a == *cn_b {
-                        Ok(())
-                    } else {
-                        Err(format!("cant merge user cn={cn_a} and domain cn={cn_b}"))
-                    }
-                }
-                _ => Err(format!("cant merge a user and a domain"))
-            }
+    }
+    impl LdapTreeNodeType for LdapOu {
+        fn parse(seg: &str) -> Option<Self> {
+            seg.strip_prefix("ou=").map(str::to_owned).map(LdapOu)
         }
-        pub fn from_iter(container: impl IntoIterator<Item = LdapSearchResp>) -> Result<Self, String>{
-            let mut iter = container.into_iter();
-            let mut root = LdapSearchTree::from_ldap_search_resp(iter.next().ok_or("container is empty".to_owned())?)?;
-            for item in iter {
-                root.merge(&mut LdapSearchTree::from_ldap_search_resp(item)?)?
-            }
-            Ok(root)
-        }
-
-        pub fn first_user_attrs(&self) -> Option<&HashMap<String, Vec<String>>>{
-            match self {
-                LdapSearchTree::Domain { children , ..} => {
-                    children.values().nth(0)?.first_user_attrs()
-                },
-                LdapSearchTree::User { attrs, .. } => {
-                    Some(attrs)
-                },
-            }
+    }
+    impl LdapTreeNodeType for LdapCn {
+        fn parse(seg: &str) -> Option<Self> {
+            seg.strip_prefix("cn=").map(str::to_owned).map(LdapCn)
         }
     }
 }
