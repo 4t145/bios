@@ -24,6 +24,7 @@ impl IamCcTenantApi {
         let funs = iam_constants::get_tardis_inst();
         let ids = ids.0.split(',').map(|s| s.to_string()).collect();
         let result = IamTenantServ::find_name_by_ids(ids, &funs, &ctx.0).await?;
+        ctx.0.execute_task().await?;
         TardisResp::ok(result)
     }
 }

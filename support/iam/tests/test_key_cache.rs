@@ -34,7 +34,7 @@ use bios_iam::iam_enumeration::{IamCertKernelKind, IamCertTokenKind, IamResKind}
 pub async fn test(system_admin_context: &TardisContext) -> TardisResult<()> {
     let funs = iam_constants::get_tardis_inst();
     info!("【test_cc_cert】 : test_key_cache");
-    let (tenant_id, tenant_admin_pwd) = IamTenantServ::add_tenant_agg(
+    let (tenant_id, tenant_admin_pwd, tenant_audit_pwd) = IamTenantServ::add_tenant_agg(
         &IamTenantAggAddReq {
             name: TrimString("缓存测试租户".to_string()),
             icon: None,
@@ -43,23 +43,30 @@ pub async fn test(system_admin_context: &TardisContext) -> TardisResult<()> {
             admin_username: TrimString("bios".to_string()),
             admin_name: TrimString("测试管理员".to_string()),
             admin_password: None,
-            cert_conf_by_user_pwd: IamCertConfUserPwdAddOrModifyReq {
-                ak_rule_len_min: 2,
-                ak_rule_len_max: 20,
-                sk_rule_len_min: 2,
-                sk_rule_len_max: 20,
-                sk_rule_need_num: false,
-                sk_rule_need_uppercase: false,
-                sk_rule_need_lowercase: false,
-                sk_rule_need_spec_char: false,
-                sk_lock_cycle_sec: 0,
-                sk_lock_err_times: 0,
-                repeatable: true,
-                expire_sec: 111,
-                sk_lock_duration_sec: 0,
-            },
-            cert_conf_by_phone_vcode: true,
-            cert_conf_by_mail_vcode: true,
+            admin_phone: None,
+            admin_mail: None,
+            audit_username: TrimString("audit".to_string()),
+            audit_name: TrimString("审计管理员".to_string()),
+            audit_password: None,
+            audit_phone: None,
+            audit_mail: None,
+            // cert_conf_by_user_pwd: IamCertConfUserPwdAddOrModifyReq {
+            //     ak_rule_len_min: 2,
+            //     ak_rule_len_max: 20,
+            //     sk_rule_len_min: 2,
+            //     sk_rule_len_max: 20,
+            //     sk_rule_need_num: false,
+            //     sk_rule_need_uppercase: false,
+            //     sk_rule_need_lowercase: false,
+            //     sk_rule_need_spec_char: false,
+            //     sk_lock_cycle_sec: 0,
+            //     sk_lock_err_times: 0,
+            //     repeatable: true,
+            //     expire_sec: 111,
+            //     sk_lock_duration_sec: 0,
+            // },
+            // cert_conf_by_phone_vcode: true,
+            // cert_conf_by_mail_vcode: true,
             disabled: None,
             account_self_reg: None,
             cert_conf_by_oauth2: None,
@@ -120,7 +127,7 @@ pub async fn test(system_admin_context: &TardisContext) -> TardisResult<()> {
         .contains("TokenDefault"));
     assert_eq!(
         funs.cache().hlen(format!("{}{}", funs.conf::<IamConfig>().cache_key_account_info_, account_resp.account_id).as_str()).await?,
-        2
+        1
     );
 
     info!("【test_key_cache】 Change cert, expected no token record");
@@ -189,7 +196,7 @@ pub async fn test(system_admin_context: &TardisContext) -> TardisResult<()> {
     info!("【test_key_cache】 Rest cert, expected no token record");
     IamCertUserPwdServ::reset_sk(
         &IamCertUserPwdRestReq {
-            new_sk: TrimString("45678".to_string()),
+            new_sk: Some(TrimString("45678".to_string())),
         },
         &account_resp.account_id,
         &IamCertServ::get_cert_conf_id_by_kind(IamCertKernelKind::UserPwd.to_string().as_str(), Some(tenant_id.clone()), &funs).await?,
@@ -254,7 +261,7 @@ pub async fn test(system_admin_context: &TardisContext) -> TardisResult<()> {
             id: None,
             name: TrimString("缓存应用管理员".to_string()),
             cert_user_name: TrimString("app_admin".to_string()),
-            cert_password: TrimString("123456".to_string()),
+            cert_password: Some(TrimString("123456".to_string())),
             cert_phone: None,
             cert_mail: None,
             icon: None,
@@ -264,7 +271,10 @@ pub async fn test(system_admin_context: &TardisContext) -> TardisResult<()> {
             org_node_ids: None,
             exts: Default::default(),
             status: None,
+            temporary: None,
+            lock_status: None,
         },
+        false,
         &funs,
         &tenant_admin_context,
     )
@@ -330,7 +340,7 @@ pub async fn test(system_admin_context: &TardisContext) -> TardisResult<()> {
         .contains("TokenDefault"));
     assert_eq!(
         funs.cache().hlen(format!("{}{}", funs.conf::<IamConfig>().cache_key_account_info_, account_id).as_str(),).await?,
-        3
+        2
     );
 
     info!("【test_key_cache】 Login by tenant again, expected two token records");
@@ -360,7 +370,7 @@ pub async fn test(system_admin_context: &TardisContext) -> TardisResult<()> {
         .contains("TokenDefault"));
     assert_eq!(
         funs.cache().hlen(format!("{}{}", funs.conf::<IamConfig>().cache_key_account_info_, account_id).as_str(),).await?,
-        3
+        2
     );
 
     info!("【test_key_cache】 Login by tenant again, expected two token records");
@@ -400,7 +410,7 @@ pub async fn test(system_admin_context: &TardisContext) -> TardisResult<()> {
         .contains("TokenDefault"));
     assert_eq!(
         funs.cache().hlen(format!("{}{}", funs.conf::<IamConfig>().cache_key_account_info_, account_id).as_str(),).await?,
-        3
+        2
     );
 
     let app_admin_context = IamIdentCacheServ::get_context(
@@ -846,9 +856,10 @@ pub async fn test(system_admin_context: &TardisContext) -> TardisResult<()> {
             action: None,
             scope_level: Some(RBUM_SCOPE_LEVEL_GLOBAL),
             disabled: None,
-            crypto_req: false,
-            crypto_resp: false,
-            double_auth: false,
+            crypto_req: Some(false),
+            crypto_resp: Some(false),
+            double_auth: Some(false),
+            double_auth_msg: None,
         },
         &funs,
         system_admin_context,
@@ -866,16 +877,22 @@ pub async fn test(system_admin_context: &TardisContext) -> TardisResult<()> {
             action: None,
             scope_level: Some(RBUM_SCOPE_LEVEL_APP),
             disabled: None,
-            crypto_req: false,
-            crypto_resp: false,
-            double_auth: false,
+            crypto_req: Some(false),
+            crypto_resp: Some(false),
+            double_auth: Some(false),
+            double_auth_msg: None,
         },
         &funs,
         system_admin_context,
     )
     .await?;
     assert_eq!(funs.cache().hlen(&funs.conf::<IamConfig>().cache_key_res_info).await?, exists_res_counter + 2);
-    assert!(funs.cache().hget(&funs.conf::<IamConfig>().cache_key_res_info, &IamResCacheServ::package_uri_mixed("iam/cs-2/**", "*")).await?.unwrap().contains(r#""roles":"""#));
+    assert!(funs
+        .cache()
+        .hget(&funs.conf::<IamConfig>().cache_key_res_info, &IamResCacheServ::package_uri_mixed("iam/cs-2/**", "*"))
+        .await?
+        .unwrap()
+        .contains(r#""need_double_auth":false"#));
 
     info!("【test_key_cache】 Disable res, expected one res record");
     IamResServ::modify_item(
@@ -891,6 +908,7 @@ pub async fn test(system_admin_context: &TardisContext) -> TardisResult<()> {
             crypto_req: None,
             crypto_resp: None,
             double_auth: None,
+            double_auth_msg: None,
         },
         &funs,
         system_admin_context,
@@ -913,13 +931,19 @@ pub async fn test(system_admin_context: &TardisContext) -> TardisResult<()> {
             crypto_req: None,
             crypto_resp: None,
             double_auth: None,
+            double_auth_msg: None,
         },
         &funs,
         system_admin_context,
     )
     .await?;
     assert_eq!(funs.cache().hlen(&funs.conf::<IamConfig>().cache_key_res_info).await?, exists_res_counter + 2);
-    assert!(funs.cache().hget(&funs.conf::<IamConfig>().cache_key_res_info, &IamResCacheServ::package_uri_mixed("iam/cs-2/**", "*")).await?.unwrap().contains(r#""roles":"""#));
+    assert!(funs
+        .cache()
+        .hget(&funs.conf::<IamConfig>().cache_key_res_info, &IamResCacheServ::package_uri_mixed("iam/cs-2/**", "*"))
+        .await?
+        .unwrap()
+        .contains(r#"need_double_auth":false"#));
 
     info!("【test_key_cache】 Delete res, expected one res record");
     IamResServ::delete_item(&res_cs_id, &funs, system_admin_context).await?;
@@ -975,13 +999,13 @@ pub async fn test(system_admin_context: &TardisContext) -> TardisResult<()> {
 
     // ====================global account cache test===============================
     info!("【test_key_cache】 global account cache test, expected is_global is true");
-    let mut mock_ctx = TardisContext { ..Default::default() };
+    let mock_ctx = TardisContext { ..Default::default() };
     let account_id2 = IamAccountServ::add_account_agg(
         &IamAccountAggAddReq {
             id: None,
             name: TrimString("全局账号".to_string()),
             cert_user_name: TrimString("global".to_string()),
-            cert_password: TrimString("123456".to_string()),
+            cert_password: Some(TrimString("123456".to_string())),
             cert_phone: None,
             cert_mail: None,
             icon: None,
@@ -991,13 +1015,16 @@ pub async fn test(system_admin_context: &TardisContext) -> TardisResult<()> {
             org_node_ids: None,
             exts: Default::default(),
             status: None,
+            temporary: None,
+            lock_status: None,
         },
+        false,
         &funs,
         &mock_ctx,
     )
     .await?;
 
-    let (tenant_id, _) = IamTenantServ::add_tenant_agg(
+    let (tenant_id, _, _) = IamTenantServ::add_tenant_agg(
         &IamTenantAggAddReq {
             name: TrimString("测试租户1".to_string()),
             icon: None,
@@ -1007,23 +1034,30 @@ pub async fn test(system_admin_context: &TardisContext) -> TardisResult<()> {
             disabled: None,
             admin_name: TrimString("测试管理员".to_string()),
             admin_password: None,
-            cert_conf_by_user_pwd: IamCertConfUserPwdAddOrModifyReq {
-                ak_rule_len_min: 2,
-                ak_rule_len_max: 20,
-                sk_rule_len_min: 2,
-                sk_rule_len_max: 20,
-                sk_rule_need_num: false,
-                sk_rule_need_uppercase: false,
-                sk_rule_need_lowercase: false,
-                sk_rule_need_spec_char: false,
-                sk_lock_cycle_sec: 0,
-                sk_lock_err_times: 0,
-                sk_lock_duration_sec: 0,
-                repeatable: true,
-                expire_sec: 111111111,
-            },
-            cert_conf_by_phone_vcode: true,
-            cert_conf_by_mail_vcode: true,
+            admin_phone: None,
+            admin_mail: None,
+            audit_username: TrimString("audit".to_string()),
+            audit_name: TrimString("审计管理员".to_string()),
+            audit_password: None,
+            audit_phone: None,
+            audit_mail: None,
+            // cert_conf_by_user_pwd: IamCertConfUserPwdAddOrModifyReq {
+            //     ak_rule_len_min: 2,
+            //     ak_rule_len_max: 20,
+            //     sk_rule_len_min: 2,
+            //     sk_rule_len_max: 20,
+            //     sk_rule_need_num: false,
+            //     sk_rule_need_uppercase: false,
+            //     sk_rule_need_lowercase: false,
+            //     sk_rule_need_spec_char: false,
+            //     sk_lock_cycle_sec: 0,
+            //     sk_lock_err_times: 0,
+            //     sk_lock_duration_sec: 0,
+            //     repeatable: true,
+            //     expire_sec: 111111111,
+            // },
+            // cert_conf_by_phone_vcode: true,
+            // cert_conf_by_mail_vcode: true,
             account_self_reg: None,
             cert_conf_by_oauth2: None,
             cert_conf_by_ldap: None,
@@ -1063,7 +1097,7 @@ pub async fn test(system_admin_context: &TardisContext) -> TardisResult<()> {
             id: None,
             name: TrimString("非全局账号".to_string()),
             cert_user_name: TrimString("not_global".to_string()),
-            cert_password: TrimString("123456".to_string()),
+            cert_password: Some(TrimString("123456".to_string())),
             cert_phone: None,
             cert_mail: None,
             icon: None,
@@ -1073,7 +1107,10 @@ pub async fn test(system_admin_context: &TardisContext) -> TardisResult<()> {
             org_node_ids: None,
             exts: Default::default(),
             status: None,
+            temporary: None,
+            lock_status: None,
         },
+        false,
         &funs,
         &TardisContext {
             own_paths: tenant_id.clone(),

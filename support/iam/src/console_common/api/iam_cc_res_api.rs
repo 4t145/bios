@@ -25,6 +25,7 @@ impl IamCcResApi {
         let funs = iam_constants::get_tardis_inst();
         let set_id = IamSetServ::get_set_id_by_code(&IamSetServ::get_default_code(&IamSetKind::Res, ""), true, &funs, &ctx.0).await?;
         let result = IamSetServ::get_menu_tree_by_roles(&set_id, &ctx.0.roles, &funs, &ctx.0).await?;
+        ctx.0.execute_task().await?;
         TardisResp::ok(result)
     }
 
@@ -34,6 +35,7 @@ impl IamCcResApi {
         let funs = iam_constants::get_tardis_inst();
         let ids = app_ids.0.split(',').map(|s| s.to_string()).collect();
         let result = IamResServ::get_res_by_app(ids, &funs, &ctx.0).await?;
+        ctx.0.execute_task().await?;
         TardisResp::ok(result)
     }
 }

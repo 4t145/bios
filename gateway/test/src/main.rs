@@ -16,7 +16,7 @@ mod init_apisix;
 
 #[tokio::main]
 async fn main() -> TardisResult<()> {
-    env::set_var("RUST_LOG", "info");
+    env::set_var("RUST_LOG", "info,tardis=trace");
     // Prepare
     log::info!("Init http server");
     tokio::spawn(async move { start_serv().await });
@@ -36,11 +36,53 @@ async fn main() -> TardisResult<()> {
             },
             None,
         )
-        .await?.body.unwrap();
+        .await?
+        .body
+        .unwrap();
     let resp = resp.data.unwrap();
     assert_eq!(&resp.code, "c001");
     assert_eq!(&resp.description, "测试001");
     assert!(!resp.done);
+
+    let header: Vec<(String, String)> = vec![("Bios-Crypto".to_string(), "".to_string())];
+    //有加密头的请求会被替换"成空 ,所以不能传json串需要base64
+    let body = TardisFuns::crypto.base64.encode(
+        &TardisFuns::json
+            .obj_to_string(&TestAddReq {
+                code: TrimString("c001".to_string()),
+                description: "测试002".to_string(),
+                done: false,
+            })
+            .unwrap(),
+    );
+    let resp: TardisResp<TestDetailResp> = TardisFuns::web_client().post(&format!("{gateway_url}/test/echo/2"), &body, Some(header)).await?.body.unwrap();
+    let resp = resp.data.unwrap();
+    assert_eq!(&resp.code, "c001");
+    assert_eq!(&resp.description, "测试002");
+    assert!(!resp.done);
+
+    let header: Vec<(String, String)> = vec![("Bios-Crypto".to_string(), "".to_string())];
+    let resp: TardisResp<String> = TardisFuns::web_client().get(&format!("{gateway_url}/test/echo/get/3"), Some(header)).await?.body.unwrap();
+    let resp = resp.data.unwrap();
+    assert_eq!(resp, "3".to_string());
+
+    let body = TardisFuns::crypto.base64.encode(
+        &TardisFuns::json
+            .obj_to_string(&TestAddReq {
+                code: TrimString("c001".to_string()),
+                description: "测试003".to_string(),
+                done: false,
+            })
+            .unwrap(),
+    );
+    let header: Vec<(String, String)> = vec![("Bios-Crypto".to_string(), "".to_string())];
+    let resp: TardisResp<TestDetailResp> = TardisFuns::web_client().post(&format!("{gateway_url}/apis"), &body, Some(header)).await?.body.unwrap();
+    let resp = resp.data.unwrap();
+    assert_eq!(&resp.code, "c001");
+    assert_eq!(&resp.description, "测试003");
+    assert!(!resp.done);
+
+    log::info!("\r\n=============\r\nTest Success\r\n=============");
 
     Ok(())
 }
@@ -53,11 +95,22 @@ impl AuthApi {
     /// Auth
     #[oai(path = "/", method = "put")]
     async fn auth(&self, req: Json<AuthReq>) -> TardisApiResult<AuthResp> {
-        let req = req.0;
+        let mut req = req.0;
         if req.path == "/test/echo/1" {
-            println!("======TODO======");
+            assert!(req.body.is_none());
         }
         let mut headers = req.headers;
+        if req.path == "/test/echo/2" {
+            assert!(req.body.is_some());
+            let req_body = TardisFuns::crypto.base64.decode(&req.body.clone().unwrap())?;
+            assert!(req_body.contains("测试002"));
+            req.body = Some(req_body);
+            headers.insert("Bios-Crypto".to_string(), "".to_string());
+        }
+        if req.path == "/test/echo/get/3" {
+            assert_eq!(req.body, None);
+            headers.insert("Bios-Crypto".to_string(), "".to_string());
+        }
         headers.insert(
             "Tardis-Context".to_string(),
             TardisFuns::crypto.base64.encode(&TardisFuns::json.obj_to_string(&TardisContext::default()).unwrap()),
@@ -66,8 +119,35 @@ impl AuthApi {
             allow: true,
             status_code: 200,
             reason: None,
-            headers: headers,
-            body: req.body.clone(),
+            headers,
+            body: req.body,
+        })
+    }
+
+    /// Auth
+    #[oai(path = "/apis", method = "put")]
+    async fn apis(&self, req: Json<AuthReq>) -> TardisApiResult<MixAuthResp> {
+        let mut req = req.0;
+        let mut headers = req.headers;
+        if req.path.contains("/apis") {
+            assert!(req.body.is_some());
+            let req_body = TardisFuns::crypto.base64.decode(&req.body.clone().unwrap())?;
+            assert!(req_body.contains("测试003"));
+            req.body = Some(req_body);
+            headers.insert("Bios-Crypto".to_string(), "".to_string());
+        }
+        headers.insert(
+            "Tardis-Context".to_string(),
+            TardisFuns::crypto.base64.encode(&TardisFuns::json.obj_to_string(&TardisContext::default()).unwrap()),
+        );
+        TardisResp::ok(MixAuthResp {
+            url: "/test/echo/4".to_string(),
+            method: "POST".to_string(),
+            allow: true,
+            status_code: 200,
+            reason: None,
+            headers,
+            body: req.body,
         })
     }
 }
@@ -89,7 +169,7 @@ async fn start_serv() -> TardisResult<()> {
         },
     })
     .await?;
-    TardisFuns::web_server().add_module("auth", AuthApi).await.add_module("test", TestApi).await.start().await
+    TardisFuns::web_server().add_module("auth", AuthApi, None).await.add_module("test", TestApi, None).await.start().await
 }
 
 #[derive(poem_openapi::Object, Serialize, Deserialize, Debug)]
@@ -106,6 +186,17 @@ pub struct AuthReq {
 
 #[derive(poem_openapi::Object, Serialize, Deserialize, Debug)]
 pub struct AuthResp {
+    pub allow: bool,
+    pub status_code: u16,
+    pub reason: Option<String>,
+    pub headers: HashMap<String, String>,
+    pub body: Option<String>,
+}
+
+#[derive(poem_openapi::Object, Serialize, Deserialize, Debug)]
+pub struct MixAuthResp {
+    pub url: String,
+    pub method: String,
     pub allow: bool,
     pub status_code: u16,
     pub reason: Option<String>,

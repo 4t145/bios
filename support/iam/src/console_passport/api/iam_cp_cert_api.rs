@@ -1,9 +1,10 @@
+use tardis::tokio::task;
 use tardis::web::context_extractor::TardisContextExtractor;
 use tardis::web::poem_openapi;
 use tardis::web::poem_openapi::param::Query;
 use tardis::web::poem_openapi::{param::Path, payload::Json};
 use tardis::web::web_resp::{TardisApiResult, TardisResp, Void};
-use tardis::TardisFuns;
+use tardis::{tokio, TardisFuns};
 
 use bios_basic::rbum::dto::rbum_cert_dto::{RbumCertSummaryResp, RbumCertSummaryWithSkResp};
 use bios_basic::rbum::dto::rbum_filer_dto::{RbumBasicFilterReq, RbumCertFilterReq};
@@ -11,8 +12,8 @@ use bios_basic::rbum::helper::rbum_scope_helper::get_max_level_id_by_context;
 
 use crate::basic::dto::iam_account_dto::{IamAccountInfoResp, IamAccountInfoWithUserPwdAkResp, IamCpUserPwdBindResp};
 use crate::basic::dto::iam_cert_dto::{
-    IamCertMailVCodeActivateReq, IamCertMailVCodeAddReq, IamCertPhoneVCodeAddReq, IamCertPhoneVCodeBindReq, IamCertPwdNewReq, IamCertUserNameNewReq, IamCertUserPwdModifyReq,
-    IamCertUserPwdRestReq, IamCertUserPwdValidateSkReq, IamContextFetchReq,
+    IamCertGenericValidateSkReq, IamCertMailVCodeActivateReq, IamCertMailVCodeAddReq, IamCertPhoneVCodeAddReq, IamCertPhoneVCodeBindReq, IamCertPwdNewReq, IamCertUserNameNewReq,
+    IamCertUserPwdModifyReq, IamCertUserPwdRestReq, IamContextFetchReq,
 };
 use crate::basic::serv::iam_account_serv::IamAccountServ;
 use crate::basic::serv::iam_cert_mail_vcode_serv::IamCertMailVCodeServ;
@@ -56,6 +57,14 @@ impl IamCpCertApi {
         TardisResp::ok(ctx)
     }
 
+    #[oai(path = "/login/pwd/status", method = "get")]
+    async fn login_status(&self, ctx: TardisContextExtractor) -> TardisApiResult<String> {
+        let funs = iam_constants::get_tardis_inst();
+        let status = IamCertServ::get_kernel_cert(&ctx.0.owner, &IamCertKernelKind::UserPwd, &funs, &ctx.0).await?.status;
+        ctx.0.execute_task().await?;
+        TardisResp::ok(status.to_string())
+    }
+
     /// Login by Username and Password
     #[oai(path = "/login/userpwd", method = "put")]
     async fn login_by_user_pwd(&self, login_req: Json<IamCpUserPwdLoginReq>) -> TardisApiResult<IamAccountInfoResp> {
@@ -97,15 +106,17 @@ impl IamCpCertApi {
             &ctx.0,
         )
         .await?;
+        ctx.0.execute_task().await?;
         TardisResp::ok(rbum_certs)
     }
 
     /// Find Third-kind Certs By Current Account
     #[oai(path = "/cert/third-kind", method = "get")]
-    async fn get_third_cert(&self, tenant_id: Query<Option<String>>, supplier: Query<String>, ctx: TardisContextExtractor) -> TardisApiResult<RbumCertSummaryWithSkResp> {
+    async fn get_third_cert(&self, supplier: Query<String>, ctx: TardisContextExtractor) -> TardisApiResult<RbumCertSummaryWithSkResp> {
         let funs = iam_constants::get_tardis_inst();
-        let ctx = IamCertServ::try_use_tenant_ctx(ctx.0, tenant_id.0)?;
-        let rbum_cert = IamCertServ::get_3th_kind_cert_by_rel_rubm_id(&ctx.owner, vec![supplier.0], &funs, &ctx).await?;
+        // let ctx = IamCertServ::try_use_tenant_ctx(ctx.0, tenant_id.0)?;
+        let rbum_cert = IamCertServ::get_3th_kind_cert_by_rel_rubm_id(&ctx.0.owner, vec![supplier.0], &funs, &ctx.0).await?;
+        ctx.0.execute_task().await?;
         TardisResp::ok(rbum_cert)
     }
 
@@ -116,6 +127,7 @@ impl IamCpCertApi {
         funs.begin().await?;
         IamCpCertUserPwdServ::new_user_name(&pwd_new_req.0, &funs, &ctx.0).await?;
         funs.commit().await?;
+        ctx.0.execute_task().await?;
         TardisResp::ok(Void {})
     }
 
@@ -140,6 +152,7 @@ impl IamCpCertApi {
         let rbum_cert_conf_id = IamCertServ::get_cert_conf_id_by_kind(IamCertKernelKind::UserPwd.to_string().as_str(), get_max_level_id_by_context(&ctx), &funs).await?;
         IamCertUserPwdServ::reset_sk_for_pending_status(&modify_req.0, &account_id.0, &rbum_cert_conf_id, &funs, &ctx).await?;
         funs.commit().await?;
+        ctx.execute_task().await?;
         TardisResp::ok(Void {})
     }
 
@@ -151,11 +164,12 @@ impl IamCpCertApi {
         let ctx = IamCertServ::use_sys_or_tenant_ctx_unsafe(ctx.0)?;
         IamCpCertUserPwdServ::modify_cert_user_pwd(&ctx.owner, &modify_req.0, &funs, &ctx).await?;
         funs.commit().await?;
+        ctx.execute_task().await?;
         TardisResp::ok(Void {})
     }
 
     /// Login by general oauth2
-    #[oai(path = "/login/:supplier", method = "put")]
+    #[oai(path = "/login/oauth2/:supplier", method = "put")]
     async fn login_or_register_by_oauth2(&self, supplier: Path<String>, login_req: Json<IamCpOAuth2LoginReq>) -> TardisApiResult<IamAccountInfoResp> {
         let mut funs = iam_constants::get_tardis_inst();
         funs.begin().await?;
@@ -165,10 +179,17 @@ impl IamCpCertApi {
     }
 
     /// Validate userpwd By Current Account
+    ///
     #[oai(path = "/validate/userpwd", method = "put")]
-    async fn validate_by_user_pwd(&self, req: Json<IamCertUserPwdValidateSkReq>, ctx: TardisContextExtractor) -> TardisApiResult<Void> {
+    async fn validate_by_user_pwd(&self, req: Json<IamCertGenericValidateSkReq>, ctx: TardisContextExtractor) -> TardisApiResult<Void> {
         let funs = iam_constants::get_tardis_inst();
-        IamCpCertUserPwdServ::validate_by_user_pwd(&req.0.sk, &funs, &IamAccountServ::new_context_if_account_is_global(&ctx.0, &funs).await?).await?;
+        IamCpCertUserPwdServ::generic_sk_validate(
+            &req.0.sk,
+            req.0.validate_type,
+            &funs,
+            &IamAccountServ::new_context_if_account_is_global(&ctx.0, &funs).await?,
+        )
+        .await?;
         TardisResp::ok(Void {})
     }
 
@@ -198,6 +219,7 @@ impl IamCpCertApi {
         funs.begin().await?;
         IamCertMailVCodeServ::send_bind_mail(&req.0.mail, &funs, &ctx.0).await?;
         funs.commit().await?;
+        ctx.0.execute_task().await?;
         TardisResp::ok(Void {})
     }
 
@@ -208,6 +230,7 @@ impl IamCpCertApi {
         funs.begin().await?;
         IamCertMailVCodeServ::bind_mail(&req.0.mail, &req.0.vcode, &funs, &ctx.0).await?;
         funs.commit().await?;
+        ctx.0.execute_task().await?;
         TardisResp::ok(Void {})
     }
 
@@ -238,6 +261,7 @@ impl IamCpCertApi {
         funs.begin().await?;
         IamCertPhoneVCodeServ::send_bind_phone(&req.0.phone, &funs, &ctx.0).await?;
         funs.commit().await?;
+        ctx.0.execute_task().await?;
         TardisResp::ok(Void {})
     }
 
@@ -248,6 +272,7 @@ impl IamCpCertApi {
         funs.begin().await?;
         IamCertPhoneVCodeServ::bind_phone(&req.0.phone.to_string(), &req.0.vcode, &funs, &ctx.0).await?;
         funs.commit().await?;
+        ctx.0.execute_task().await?;
         TardisResp::ok(Void {})
     }
 

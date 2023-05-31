@@ -43,7 +43,7 @@ async fn init_db(domain_code: String, kind_code: String, funs: &TardisFunsInst, 
     }
 
     // Initialize event component RBUM item table and indexs
-    funs.db().init(event_topic::ActiveModel::init(TardisFuns::reldb().backend(), None)).await?;
+    funs.db().init(event_topic::ActiveModel::init(TardisFuns::reldb().backend(), None, TardisFuns::reldb().compatible_type())).await?;
     // Initialize event component RBUM domain data
     let domain_id = RbumDomainServ::add_rbum(
         &mut RbumDomainAddReq {
@@ -83,6 +83,7 @@ async fn init_api(web_server: &TardisWebServer) -> TardisResult<()> {
         .add_module(
             DOMAIN_CODE,
             (event_topic_api::EventTopicApi, event_proc_api::EventProcApi, event_listener_api::EventListenerApi),
+            None,
         )
         .await;
     Ok(())

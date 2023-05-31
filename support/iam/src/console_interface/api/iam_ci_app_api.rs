@@ -1,13 +1,13 @@
 use crate::basic::dto::iam_app_dto::{IamAppAggAddReq, IamAppAggModifyReq};
 use crate::basic::serv::iam_app_serv::IamAppServ;
-use crate::basic::serv::iam_role_serv::IamRoleServ;
-use crate::iam_constants::{self, RBUM_SCOPE_LEVEL_APP};
+
+use crate::iam_constants::{self};
 use bios_basic::process::task_processor::TaskProcessor;
 use tardis::web::context_extractor::TardisContextExtractor;
 use tardis::web::poem_openapi;
-use tardis::web::poem_openapi::param::Path;
+
 use tardis::web::poem_openapi::payload::Json;
-use tardis::web::web_resp::{TardisApiResult, TardisResp, Void};
+use tardis::web::web_resp::{TardisApiResult, TardisResp};
 
 pub struct IamCiAppApi;
 
@@ -23,6 +23,7 @@ impl IamCiAppApi {
         funs.begin().await?;
         let result = IamAppServ::add_app_agg(&add_req.0, &funs, &ctx.0).await?;
         funs.commit().await?;
+        ctx.0.execute_task().await?;
         TardisResp::ok(result)
     }
 
@@ -33,9 +34,11 @@ impl IamCiAppApi {
     async fn modify(&self, modify_req: Json<IamAppAggModifyReq>, ctx: TardisContextExtractor) -> TardisApiResult<Option<String>> {
         let mut funs = iam_constants::get_tardis_inst();
         funs.begin().await?;
+
         IamAppServ::modify_app_agg(&IamAppServ::get_id_by_ctx(&ctx.0, &funs)?, &modify_req, &funs, &ctx.0).await?;
         funs.commit().await?;
-        if let Some(task_id) = TaskProcessor::get_task_id_with_ctx(&ctx.0)? {
+        ctx.0.execute_task().await?;
+        if let Some(task_id) = TaskProcessor::get_task_id_with_ctx(&ctx.0).await? {
             TardisResp::accepted(Some(task_id))
         } else {
             TardisResp::ok(None)

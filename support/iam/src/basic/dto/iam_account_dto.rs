@@ -8,6 +8,7 @@ use tardis::web::poem_openapi;
 
 use crate::basic::dto::iam_cert_conf_dto::IamCertConfLdapResp;
 use crate::basic::serv::iam_cert_ldap_serv::ldap::LdapSearchResp;
+use crate::iam_enumeration::{IamAccountLockStateKind, IamAccountStatusKind};
 use bios_basic::rbum::rbum_enumeration::{RbumCertStatusKind, RbumScopeLevelKind};
 
 #[derive(poem_openapi::Object, Serialize, Deserialize, Debug)]
@@ -19,17 +20,19 @@ pub struct IamAccountAggAddReq {
     #[oai(validator(min_length = "2", max_length = "255"))]
     pub cert_user_name: TrimString,
     #[oai(validator(min_length = "2", max_length = "255"))]
-    pub cert_password: TrimString,
+    pub cert_password: Option<TrimString>,
     #[oai(validator(min_length = "2", max_length = "255"))]
     pub cert_phone: Option<TrimString>,
     #[oai(validator(min_length = "2", max_length = "255"))]
     pub cert_mail: Option<TrimString>,
-
     pub role_ids: Option<Vec<String>>,
     pub org_node_ids: Option<Vec<String>>,
+    pub lock_status: Option<IamAccountLockStateKind>,
 
     pub scope_level: Option<RbumScopeLevelKind>,
     pub disabled: Option<bool>,
+
+    pub temporary: Option<bool>,
 
     #[oai(validator(min_length = "2", max_length = "1000"))]
     pub icon: Option<String>,
@@ -45,7 +48,9 @@ pub struct IamAccountAddReq {
     pub name: TrimString,
     pub scope_level: Option<RbumScopeLevelKind>,
     pub disabled: Option<bool>,
-
+    pub temporary: Option<bool>,
+    pub lock_status: Option<IamAccountLockStateKind>,
+    pub status: Option<IamAccountStatusKind>,
     #[oai(validator(min_length = "2", max_length = "1000"))]
     pub icon: Option<String>,
 }
@@ -56,9 +61,14 @@ pub struct IamAccountAggModifyReq {
     pub name: Option<TrimString>,
     pub scope_level: Option<RbumScopeLevelKind>,
     pub disabled: Option<bool>,
-
+    pub status: Option<IamAccountStatusKind>,
     #[oai(validator(min_length = "2", max_length = "1000"))]
     pub icon: Option<String>,
+
+    #[oai(validator(min_length = "2", max_length = "255"))]
+    pub cert_phone: Option<TrimString>,
+    #[oai(validator(min_length = "2", max_length = "255"))]
+    pub cert_mail: Option<TrimString>,
 
     pub role_ids: Option<Vec<String>>,
     pub org_cate_ids: Option<Vec<String>>,
@@ -72,7 +82,10 @@ pub struct IamAccountModifyReq {
     pub name: Option<TrimString>,
     pub scope_level: Option<RbumScopeLevelKind>,
     pub disabled: Option<bool>,
+    pub lock_status: Option<IamAccountLockStateKind>,
 
+    pub status: Option<IamAccountStatusKind>,
+    pub is_auto: Option<bool>,
     #[oai(validator(min_length = "2", max_length = "1000"))]
     pub icon: Option<String>,
 }
@@ -82,7 +95,6 @@ pub struct IamAccountSelfModifyReq {
     #[oai(validator(min_length = "2", max_length = "255"))]
     pub name: Option<TrimString>,
     pub disabled: Option<bool>,
-
     // #[oai(validator(min_length = "2", max_length = "1000"))]
     pub icon: Option<String>,
 
@@ -100,7 +112,7 @@ pub struct IamAccountBoneResp {
 pub struct IamAccountSummaryResp {
     pub id: String,
     pub name: String,
-
+    pub status: IamAccountStatusKind,
     pub own_paths: String,
     pub owner: String,
     pub create_time: DateTime<Utc>,
@@ -109,6 +121,9 @@ pub struct IamAccountSummaryResp {
     pub scope_level: RbumScopeLevelKind,
     pub disabled: bool,
 
+    pub temporary: bool,
+    pub lock_status: IamAccountLockStateKind,
+
     pub icon: String,
 }
 
@@ -116,7 +131,7 @@ pub struct IamAccountSummaryResp {
 pub struct IamAccountDetailResp {
     pub id: String,
     pub name: String,
-
+    pub status: IamAccountStatusKind,
     pub own_paths: String,
     pub owner: String,
     pub owner_name: Option<String>,
@@ -126,6 +141,9 @@ pub struct IamAccountDetailResp {
     pub scope_level: RbumScopeLevelKind,
     pub disabled: bool,
 
+    pub temporary: bool,
+    pub lock_status: IamAccountLockStateKind,
+
     pub icon: String,
 }
 
@@ -133,7 +151,6 @@ pub struct IamAccountDetailResp {
 pub struct IamAccountSummaryAggResp {
     pub id: String,
     pub name: String,
-
     pub own_paths: String,
     pub owner: String,
     pub create_time: DateTime<Utc>,
@@ -142,6 +159,10 @@ pub struct IamAccountSummaryAggResp {
     pub scope_level: RbumScopeLevelKind,
     pub disabled: bool,
     pub is_locked: bool,
+    pub is_online: bool,
+    pub status: IamAccountStatusKind,
+    pub temporary: bool,
+    pub lock_status: IamAccountLockStateKind,
     pub icon: String,
 
     pub roles: HashMap<String, String>,
@@ -162,7 +183,11 @@ pub struct IamAccountDetailAggResp {
 
     pub scope_level: RbumScopeLevelKind,
     pub disabled: bool,
-
+    pub is_locked: bool,
+    pub is_online: bool,
+    pub status: IamAccountStatusKind,
+    pub temporary: bool,
+    pub lock_status: IamAccountLockStateKind,
     pub icon: String,
 
     pub roles: HashMap<String, String>,

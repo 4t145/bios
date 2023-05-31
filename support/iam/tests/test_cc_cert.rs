@@ -22,7 +22,7 @@ pub async fn test(
     t2_a2_context: &TardisContext,
 ) -> TardisResult<()> {
     test_single_level(sys_context, RBUM_ITEM_NAME_SYS_ADMIN_ACCOUNT, t1_context).await?;
-    test_single_level(t1_context, "bios", t2_context).await?;
+    test_single_level(t1_context, RBUM_ITEM_NAME_SYS_ADMIN_ACCOUNT, t2_context).await?;
     // test_single_level(t2_a1_context, "app_admin1", t2_a2_context).await?;
     Ok(())
 }
@@ -41,6 +41,7 @@ async fn test_single_level(context: &TardisContext, ak: &str, another_context: &
         IamCertUserPwdServ::rename_ak_if_duplicate(rename_test_ak, &funs, context).await.unwrap().to_string(),
         rename_test_ak.to_string(),
     );
+    // todo 这个测试用例有问题，需要修改 rename_ak_if_duplicate
     assert_eq!(IamCertUserPwdServ::rename_ak_if_duplicate(ak, &funs, context).await.unwrap().to_string(), format!("{ak}_1"),);
 
     info!("【test_cc_cert】 : test_single_level : Rest Password");
@@ -52,7 +53,7 @@ async fn test_single_level(context: &TardisContext, ak: &str, another_context: &
     .await?;
     assert!(IamCertUserPwdServ::reset_sk(
         &IamCertUserPwdRestReq {
-            new_sk: TrimString("sssssssssss".to_string())
+            new_sk: Some(TrimString("sssssssssss".to_string()))
         },
         &another_context.owner,
         &rbum_cert_conf_id,
@@ -74,7 +75,7 @@ async fn test_single_level(context: &TardisContext, ak: &str, another_context: &
     .is_err());
     IamCertUserPwdServ::reset_sk(
         &IamCertUserPwdRestReq {
-            new_sk: TrimString("sssssssssss".to_string()),
+            new_sk: Some(TrimString("sssssssssss".to_string())),
         },
         &context.owner,
         &rbum_cert_conf_id,
@@ -177,6 +178,7 @@ async fn test_single_level(context: &TardisContext, ak: &str, another_context: &
             sk: Some("123456".to_string()),
             supplier: pwd_supplier.to_string(),
             ext: Some("测试用户名/密码".to_string()),
+            conn_uri: None,
         },
         &funs,
         &another_context,
@@ -189,6 +191,7 @@ async fn test_single_level(context: &TardisContext, ak: &str, another_context: &
             sk: Some("123456".to_string()),
             supplier: visa_supplier.to_string(),
             ext: Some("测试用户名/证书".to_string()),
+            conn_uri: None,
         },
         &funs,
         &another_context,

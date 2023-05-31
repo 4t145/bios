@@ -23,7 +23,7 @@ async fn init_db(domain_code: String, funs: &TardisFunsInst) -> TardisResult<()>
         return Ok(());
     }
     // Initialize plugin component RBUM item table and indexs
-    funs.db().init(plugin_api::ActiveModel::init(TardisFuns::reldb().backend(), None)).await?;
+    funs.db().init(plugin_api::ActiveModel::init(TardisFuns::reldb().backend(), None, TardisFuns::reldb().compatible_type())).await?;
     Ok(())
 }
 
@@ -37,6 +37,7 @@ async fn init_api(web_server: &TardisWebServer) -> TardisResult<()> {
                 plugin_ci_exec_api::PluginExecApi,
                 plugin_ci_kind_api::PluginKindApi,
             ),
+            None,
         )
         .await;
     Ok(())

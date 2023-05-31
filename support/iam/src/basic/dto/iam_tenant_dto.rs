@@ -7,6 +7,7 @@ use tardis::db::sea_orm;
 use tardis::web::poem_openapi;
 
 use super::iam_cert_conf_dto::{IamCertConfOAuth2AddOrModifyReq, IamCertConfOAuth2Resp, IamCertConfUserPwdAddOrModifyReq};
+use super::iam_config_dto::{IamConfigAggOrModifyReq, IamConfigSummaryResp};
 
 #[derive(poem_openapi::Object, Serialize, Deserialize, Debug)]
 pub struct IamTenantAddReq {
@@ -18,7 +19,7 @@ pub struct IamTenantAddReq {
     pub scope_level: Option<RbumScopeLevelKind>,
     pub disabled: Option<bool>,
 
-    #[oai(validator(min_length = "2", max_length = "255"))]
+    #[oai(validator(min_length = "2", max_length = "1000"))]
     pub icon: Option<String>,
     pub sort: Option<i64>,
     #[oai(validator(min_length = "2", max_length = "255"))]
@@ -36,7 +37,7 @@ pub struct IamTenantModifyReq {
     pub scope_level: Option<RbumScopeLevelKind>,
     pub disabled: Option<bool>,
 
-    #[oai(validator(min_length = "2", max_length = "255"))]
+    #[oai(validator(min_length = "2", max_length = "1000"))]
     pub icon: Option<String>,
     pub sort: Option<i64>,
     #[oai(validator(min_length = "2", max_length = "255"))]
@@ -62,13 +63,27 @@ pub struct IamTenantAggAddReq {
     #[oai(validator(min_length = "2", max_length = "255"))]
     pub admin_username: TrimString,
     #[oai(validator(min_length = "2", max_length = "255"))]
-    pub admin_password: Option<String>,
+    pub admin_password: Option<TrimString>,
+    #[oai(validator(min_length = "2", max_length = "255"))]
+    pub admin_phone: Option<TrimString>,
+    #[oai(validator(min_length = "2", max_length = "255"))]
+    pub admin_mail: Option<TrimString>,
     #[oai(validator(min_length = "2", max_length = "255"))]
     pub admin_name: TrimString,
 
-    pub cert_conf_by_user_pwd: IamCertConfUserPwdAddOrModifyReq,
-    pub cert_conf_by_phone_vcode: bool,
-    pub cert_conf_by_mail_vcode: bool,
+    #[oai(validator(min_length = "2", max_length = "255"))]
+    pub audit_username: TrimString,
+    #[oai(validator(min_length = "2", max_length = "255"))]
+    pub audit_password: Option<TrimString>,
+    #[oai(validator(min_length = "2", max_length = "255"))]
+    pub audit_phone: Option<TrimString>,
+    #[oai(validator(min_length = "2", max_length = "255"))]
+    pub audit_mail: Option<TrimString>,
+    #[oai(validator(min_length = "2", max_length = "255"))]
+    pub audit_name: TrimString,
+    // pub cert_conf_by_user_pwd: IamCertConfUserPwdAddOrModifyReq,
+    // pub cert_conf_by_phone_vcode: bool,
+    // pub cert_conf_by_mail_vcode: bool,
     pub cert_conf_by_oauth2: Option<Vec<IamCertConfOAuth2AddOrModifyReq>>,
     pub cert_conf_by_ldap: Option<IamCertConfLdapAddOrModifyReq>,
 }
@@ -77,7 +92,7 @@ pub struct IamTenantAggAddReq {
 pub struct IamTenantAggModifyReq {
     #[oai(validator(min_length = "2", max_length = "255"))]
     pub name: Option<TrimString>,
-    #[oai(validator(min_length = "2", max_length = "255"))]
+    #[oai(validator(min_length = "2", max_length = "1000"))]
     pub icon: Option<String>,
     pub sort: Option<i64>,
     #[oai(validator(min_length = "2", max_length = "255"))]
@@ -86,12 +101,32 @@ pub struct IamTenantAggModifyReq {
     pub note: Option<String>,
     pub account_self_reg: Option<bool>,
     pub disabled: Option<bool>,
+    // pub cert_conf_by_user_pwd: Option<IamCertConfUserPwdAddOrModifyReq>,
+    // pub cert_conf_by_phone_vcode: Option<bool>,
+    // pub cert_conf_by_mail_vcode: Option<bool>,
+    // pub cert_conf_by_oauth2: Option<Vec<IamCertConfOAuth2AddOrModifyReq>>,
+    // pub cert_conf_by_ldap: Option<IamCertConfLdapAddOrModifyReq>,
+}
 
+#[derive(poem_openapi::Object, Serialize, Deserialize, Debug)]
+pub struct IamTenantConfigReq {
     pub cert_conf_by_user_pwd: Option<IamCertConfUserPwdAddOrModifyReq>,
     pub cert_conf_by_phone_vcode: Option<bool>,
     pub cert_conf_by_mail_vcode: Option<bool>,
     pub cert_conf_by_oauth2: Option<Vec<IamCertConfOAuth2AddOrModifyReq>>,
     pub cert_conf_by_ldap: Option<IamCertConfLdapAddOrModifyReq>,
+    pub config: Option<Vec<IamConfigAggOrModifyReq>>,
+}
+
+#[derive(poem_openapi::Object, Serialize, Deserialize, Debug)]
+pub struct IamTenantConfigResp {
+    pub cert_conf_by_user_pwd: IamCertConfUserPwdResp,
+    pub cert_conf_by_phone_vcode: bool,
+    pub cert_conf_by_mail_vcode: bool,
+    pub cert_conf_by_oauth2: Option<Vec<IamCertConfOAuth2Resp>>,
+    pub cert_conf_by_ldap: Option<Vec<IamCertConfLdapResp>>,
+    pub config: Vec<IamConfigSummaryResp>,
+    pub strict_security_mode: bool,
 }
 
 #[derive(poem_openapi::Object, Serialize, Deserialize, Debug)]

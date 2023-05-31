@@ -26,7 +26,7 @@ impl IamCcAccountApi {
     #[oai(path = "/", method = "get")]
     async fn paginate(
         &self,
-        id: Query<Option<String>>,
+        ids: Query<Option<String>>,
         name: Query<Option<String>>,
         role_id: Query<Option<String>>,
         app_id: Query<Option<String>>,
@@ -57,7 +57,7 @@ impl IamCcAccountApi {
         let result = IamAccountServ::paginate_items(
             &IamAccountFilterReq {
                 basic: RbumBasicFilterReq {
-                    ids: id.0.map(|id| vec![id]),
+                    ids: ids.0.map(|ids| ids.split(',').map(|id| id.to_string()).collect::<Vec<String>>()),
                     name: name.0,
                     enabled: Some(true),
                     with_sub_own_paths: with_sub.0.unwrap_or(false),
@@ -75,6 +75,7 @@ impl IamCcAccountApi {
             &ctx.0,
         )
         .await?;
+        ctx.0.execute_task().await?;
         TardisResp::ok(TardisPage {
             page_size: result.page_size,
             page_number: result.page_number,
@@ -104,6 +105,41 @@ impl IamCcAccountApi {
         let funs = iam_constants::get_tardis_inst();
         let ids = ids.0.split(',').map(|s| s.to_string()).collect();
         let result = IamAccountServ::find_name_by_ids(ids, &funs, &ctx.0).await?;
+        ctx.0.execute_task().await?;
+        TardisResp::ok(result)
+    }
+
+    /// Find Account online By Ids
+    ///
+    /// Return format: ["<id>,<online -> true or false>"]
+    #[oai(path = "/online", method = "get")]
+    async fn find_account_online_by_ids(
+        &self,
+        // Account Ids, multiple ids separated by ,
+        ids: Query<String>,
+        ctx: TardisContextExtractor,
+    ) -> TardisApiResult<Vec<String>> {
+        let funs = iam_constants::get_tardis_inst();
+        let ids = ids.0.split(',').map(|s| s.to_string()).collect();
+        let result = IamAccountServ::find_account_online_by_ids(ids, &funs, &ctx.0).await?;
+        ctx.0.execute_task().await?;
+        TardisResp::ok(result)
+    }
+
+    /// Find Account lock state By Ids
+    ///
+    /// Return format: ["<id>,<state>"]
+    #[oai(path = "/lock/state", method = "get")]
+    async fn find_account_lock_state_by_ids(
+        &self,
+        // Account Ids, multiple ids separated by ,
+        ids: Query<String>,
+        ctx: TardisContextExtractor,
+    ) -> TardisApiResult<Vec<String>> {
+        let funs = iam_constants::get_tardis_inst();
+        let ids = ids.0.split(',').map(|s| s.to_string()).collect();
+        let result = IamAccountServ::find_account_lock_state_by_ids(ids, &funs, &ctx.0).await?;
+        ctx.0.execute_task().await?;
         TardisResp::ok(result)
     }
 }
@@ -123,6 +159,7 @@ impl IamCcAccountLdapApi {
     ) -> TardisApiResult<Vec<IamAccountExtSysResp>> {
         let funs = iam_constants::get_tardis_inst();
         let result = IamCertLdapServ::search_accounts(&name.0, tenant_id.0, &code.0, &funs, &ctx.0).await?;
+        ctx.0.execute_task().await?;
         TardisResp::ok(result)
     }
 
@@ -136,6 +173,7 @@ impl IamCcAccountLdapApi {
     ) -> TardisApiResult<IamAccountAddByLdapResp> {
         let funs = iam_constants::get_tardis_inst();
         let result = IamCertLdapServ::batch_get_or_add_account_without_verify(add_req.0, tenant_id.0, &funs, &ctx.0).await?;
+        ctx.0.execute_task().await?;
         TardisResp::ok(result)
     }
 }

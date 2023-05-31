@@ -4,7 +4,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::{
     constants::{self, SessionConfig, StableConfig},
-    mini_tardis::{self, basic::TardisResult, crypto, error, http, log},
+    mini_tardis::{basic::TardisResult, crypto, error, http, log},
     modules::{
         crypto_process,
         resource_process::{self, ResContainerNode},
@@ -12,13 +12,13 @@ use crate::{
 };
 
 pub(crate) async fn init(service_url: &str, serv_config: Option<ServConfig>) -> TardisResult<bool> {
-    let service_url = if service_url.ends_with("/") {
+    let service_url = if service_url.ends_with('/') {
         service_url.to_string()
     } else {
         format!("{service_url}/")
     };
     let serv_config = if let Some(serv_config) = serv_config {
-        log::log(&format!("[BIOS] Init by spec config."));
+        log::log(&"[BIOS] Init by spec config.".to_string());
         serv_config
     } else {
         log::log(&format!("[BIOS] Init by url: {service_url}."));
@@ -29,19 +29,19 @@ pub(crate) async fn init(service_url: &str, serv_config: Option<ServConfig>) -> 
 }
 
 pub(crate) fn do_init(service_url: &str, serv_config: &ServConfig) -> TardisResult<()> {
-    init_config(&service_url, &serv_config)?;
+    init_config(service_url, serv_config)?;
     init_behavior(serv_config.strict_security_mode, service_url)?;
     Ok(())
 }
 
-fn init_behavior(strict_security_mode: bool, service_url: &str) -> TardisResult<()> {
+fn init_behavior(strict_security_mode: bool, _service_url: &str) -> TardisResult<()> {
     error::set_hide_error_detail(strict_security_mode);
     #[cfg(target_arch = "wasm32")]
     {
         js_sys::Reflect::set(
             &wasm_bindgen::JsValue::from(web_sys::window().unwrap()),
             &wasm_bindgen::JsValue::from(constants::BIOS_SERV_URL_CONFIG),
-            &wasm_bindgen::JsValue::from(service_url),
+            &wasm_bindgen::JsValue::from(_service_url),
         )?;
         if constants::get_strict_security_mode()? {
             crate::mini_tardis::channel::init(
@@ -49,18 +49,18 @@ fn init_behavior(strict_security_mode: bool, service_url: &str) -> TardisResult<
                 |_| {
                     let config_container = crate::constants::SESSION_CONFIG.read().unwrap();
                     if let Some(config) = config_container.as_ref() {
-                        mini_tardis::channel::send(crate::constants::BIOS_SESSION_CONFIG, config).unwrap();
+                        crate::mini_tardis::channel::send(crate::constants::BIOS_SESSION_CONFIG, config).unwrap();
                     }
                 },
                 |session_config| {
-                    let session_config = mini_tardis::serde::jsvalue_to_obj::<crate::constants::SessionConfig>(session_config).unwrap();
+                    let session_config = crate::mini_tardis::serde::jsvalue_to_obj::<crate::constants::SessionConfig>(session_config).unwrap();
                     crate::constants::init_session_config(session_config).unwrap();
                 },
             )?;
             if let Ok(Some(storage)) = web_sys::window().unwrap().session_storage() {
                 if let Ok(Some(session_config)) = storage.get(constants::BIOS_SESSION_CONFIG) {
                     let session_config = crypto_process::simple_decrypt(&session_config)?;
-                    let session_config = mini_tardis::serde::str_to_obj::<crate::constants::SessionConfig>(&session_config)?;
+                    let session_config = crate::mini_tardis::serde::str_to_obj::<crate::constants::SessionConfig>(&session_config)?;
                     return crate::constants::init_session_config(session_config);
                 }
             }
@@ -68,7 +68,7 @@ fn init_behavior(strict_security_mode: bool, service_url: &str) -> TardisResult<
             if let Ok(Some(storage)) = web_sys::window().unwrap().local_storage() {
                 if let Ok(Some(session_config)) = storage.get(constants::BIOS_SESSION_CONFIG) {
                     let session_config = crypto_process::simple_decrypt(&session_config)?;
-                    let session_config = mini_tardis::serde::str_to_obj::<crate::constants::SessionConfig>(&session_config)?;
+                    let session_config = crate::mini_tardis::serde::str_to_obj::<crate::constants::SessionConfig>(&session_config)?;
                     return crate::constants::init_session_config(session_config);
                 }
             }
@@ -80,24 +80,24 @@ fn init_behavior(strict_security_mode: bool, service_url: &str) -> TardisResult<
     })
 }
 
-pub(crate) fn change_behavior(session_config: &SessionConfig, only_storage: bool) -> TardisResult<()> {
+pub(crate) fn change_behavior(_session_config: &SessionConfig, _only_storage: bool) -> TardisResult<()> {
     #[cfg(target_arch = "wasm32")]
     {
         if constants::get_strict_security_mode()? {
             if let Ok(Some(storage)) = web_sys::window().unwrap().session_storage() {
                 storage.set(
                     constants::BIOS_SESSION_CONFIG,
-                    &crypto_process::simple_encrypt(&mini_tardis::serde::obj_to_str(session_config)?)?,
+                    &crypto_process::simple_encrypt(&crate::mini_tardis::serde::obj_to_str(_session_config)?)?,
                 )?;
             }
-            if !only_storage {
-                crate::mini_tardis::channel::send(constants::BIOS_SESSION_CONFIG, session_config)?;
+            if !_only_storage {
+                crate::mini_tardis::channel::send(constants::BIOS_SESSION_CONFIG, _session_config)?;
             }
         } else {
             if let Ok(Some(storage)) = web_sys::window().unwrap().local_storage() {
                 storage.set(
                     constants::BIOS_SESSION_CONFIG,
-                    &crypto_process::simple_encrypt(&mini_tardis::serde::obj_to_str(session_config)?)?,
+                    &crypto_process::simple_encrypt(&crate::mini_tardis::serde::obj_to_str(_session_config)?)?,
                 )?;
             }
         }
@@ -129,21 +129,21 @@ fn init_config(service_url: &str, serv_config: &ServConfig) -> TardisResult<()> 
     }
     let fd_sm2_keys = crypto_process::init_fd_sm2_keys()?;
     let config = StableConfig {
-        res_container: res_container,
+        res_container,
         double_auth_exp_sec: serv_config.double_auth_exp_sec,
         serv_pub_key: crypto::sm::TardisCryptoSm2PublicKey::from_public_key_str(&serv_config.pub_key)?,
         fd_sm2_pub_key: fd_sm2_keys.0,
         fd_sm2_pri_key: fd_sm2_keys.1,
         login_req_method: serv_config.login_req_method.to_lowercase(),
-        login_req_paths: serv_config.login_req_paths.iter().map(|i| if i.starts_with("/") { i.clone() } else { format!("/{}", i) }).collect::<Vec<String>>(),
+        login_req_paths: serv_config.login_req_paths.iter().map(|i| if i.starts_with('/') { i.clone() } else { format!("/{}", i) }).collect::<Vec<String>>(),
         logout_req_method: serv_config.logout_req_method.to_lowercase(),
-        logout_req_path: if serv_config.logout_req_path.starts_with("/") {
+        logout_req_path: if serv_config.logout_req_path.starts_with('/') {
             serv_config.logout_req_path.clone()
         } else {
             format!("/{}", &serv_config.logout_req_path)
         },
         double_auth_req_method: serv_config.double_auth_req_method.to_lowercase(),
-        double_auth_req_path: if serv_config.double_auth_req_path.starts_with("/") {
+        double_auth_req_path: if serv_config.double_auth_req_path.starts_with('/') {
             serv_config.double_auth_req_path.clone()
         } else {
             format!("/{}", &serv_config.double_auth_req_path)

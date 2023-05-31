@@ -1,10 +1,10 @@
+use bios_basic::rbum::dto::rbum_set_dto::RbumSetTreeResp;
 use tardis::web::context_extractor::TardisContextExtractor;
 use tardis::web::poem_openapi;
 use tardis::web::poem_openapi::{param::Path, param::Query, payload::Json};
 use tardis::web::web_resp::{TardisApiResult, TardisResp, Void};
 
 use bios_basic::rbum::dto::rbum_filer_dto::RbumSetTreeFilterReq;
-use bios_basic::rbum::dto::rbum_set_dto::RbumSetTreeResp;
 use bios_basic::rbum::dto::rbum_set_item_dto::RbumSetItemDetailResp;
 use bios_basic::rbum::rbum_enumeration::RbumSetCateLevelQueryKind;
 
@@ -13,7 +13,6 @@ use crate::basic::serv::iam_cert_serv::IamCertServ;
 use crate::basic::serv::iam_set_serv::IamSetServ;
 use crate::iam_constants;
 use crate::iam_enumeration::IamSetKind;
-
 pub struct IamCtAppSetApi;
 
 /// Tenant Console App Set API
@@ -28,6 +27,7 @@ impl IamCtAppSetApi {
         let set_id = IamSetServ::get_default_set_id_by_ctx(&IamSetKind::Apps, &funs, &ctx.0).await?;
         let result = IamSetServ::add_set_cate(&set_id, &add_req.0, &funs, &ctx.0).await?;
         funs.commit().await?;
+        ctx.0.execute_task().await?;
         TardisResp::ok(result)
     }
 
@@ -38,6 +38,7 @@ impl IamCtAppSetApi {
         funs.begin().await?;
         IamSetServ::modify_set_cate(&id.0, &modify_req.0, &funs, &ctx.0).await?;
         funs.commit().await?;
+        ctx.0.execute_task().await?;
         TardisResp::ok(Void {})
     }
 
@@ -70,6 +71,7 @@ impl IamCtAppSetApi {
             )
             .await?
         };
+        ctx.execute_task().await?;
         TardisResp::ok(result)
     }
 
@@ -80,6 +82,7 @@ impl IamCtAppSetApi {
         funs.begin().await?;
         IamSetServ::delete_set_cate(&id.0, &funs, &ctx.0).await?;
         funs.commit().await?;
+        ctx.0.execute_task().await?;
         TardisResp::ok(Void {})
     }
 
@@ -102,6 +105,7 @@ impl IamCtAppSetApi {
         )
         .await?;
         funs.commit().await?;
+        ctx.execute_task().await?;
         TardisResp::ok(result)
     }
 
@@ -130,6 +134,7 @@ impl IamCtAppSetApi {
             );
         }
         funs.commit().await?;
+        ctx.execute_task().await?;
         TardisResp::ok(result)
     }
 
@@ -140,6 +145,7 @@ impl IamCtAppSetApi {
         let ctx = IamCertServ::use_sys_or_tenant_ctx_unsafe(ctx.0)?;
         let set_id = IamSetServ::get_default_set_id_by_ctx(&IamSetKind::Apps, &funs, &ctx).await?;
         let result = IamSetServ::find_set_items_with_none_set_cate_id(Some(set_id), cate_id.0, item_id.0, false, &funs, &ctx).await?;
+        ctx.execute_task().await?;
         TardisResp::ok(result)
     }
 
@@ -151,6 +157,7 @@ impl IamCtAppSetApi {
         let ctx = IamCertServ::use_sys_or_tenant_ctx_unsafe(ctx.0)?;
         IamSetServ::delete_set_item(&id.0, &funs, &ctx).await?;
         funs.commit().await?;
+        ctx.execute_task().await?;
         TardisResp::ok(Void {})
     }
 
@@ -161,6 +168,7 @@ impl IamCtAppSetApi {
         let ctx = IamCertServ::use_sys_or_tenant_ctx_unsafe(ctx.0)?;
         let set_id = IamSetServ::get_default_set_id_by_ctx(&IamSetKind::Apps, &funs, &ctx).await?;
         let result = IamSetServ::check_scope(&app_id.0, &account_id.0.unwrap_or_else(|| ctx.owner.clone()), &set_id, &funs, &ctx).await?;
+        ctx.execute_task().await?;
         TardisResp::ok(result)
     }
 }

@@ -8,6 +8,7 @@ use tardis::basic::field::TrimString;
 use tardis::basic::result::TardisResult;
 use tardis::serde_json::json;
 use tardis::tokio::time::sleep;
+use tardis::web::tokio_tungstenite::tungstenite::Message;
 use tardis::web::ws_processor::{TardisWebsocketMessage, TardisWebsocketMgrMessage, TardisWebsocketReq, WS_SYSTEM_EVENT_AVATAR_ADD};
 use tardis::TardisFuns;
 
@@ -21,9 +22,9 @@ pub async fn test(http_client: &TestHttpClient) -> TardisResult<()> {
     // Register management listener
     let url = add_listener(Vec::new(), true, vec![TrimString("test_log_append".to_string())], http_client).await?;
     let mgr_test_log_client = TardisFuns::ws_client(&url, move |msg| async move {
-        let receive_msg = TardisFuns::json.str_to_obj::<TardisWebsocketMgrMessage>(&msg).unwrap();
-        let ori_msg = TardisFuns::json.json_to_obj::<EventMessageMgrWrap>(receive_msg.msg.clone()).unwrap();
-        let raw_msg = TardisFuns::json.json_to_obj::<EbWebsocketMessage>(ori_msg.msg.clone()).unwrap();
+        let receive_msg = TardisFuns::json.str_to_obj::<TardisWebsocketMgrMessage>(msg.to_string().as_str()).unwrap();
+        let ori_msg = TardisFuns::json.json_to_obj::<EventMessageMgrWrap>(receive_msg.msg).unwrap();
+        let raw_msg = TardisFuns::json.json_to_obj::<EbWebsocketMessage>(ori_msg.msg).unwrap();
         if raw_msg.content == "test xxxx" {
             assert!(1 == 2);
             TEST_LOG_COUNTER.fetch_add(1, Ordering::SeqCst);
@@ -47,16 +48,20 @@ pub async fn test(http_client: &TestHttpClient) -> TardisResult<()> {
     )
     .await?;
     let mgr_feed_client = TardisFuns::ws_client(&url, move |msg| async move {
-        let receive_msg = TardisFuns::json.str_to_obj::<TardisWebsocketMgrMessage>(&msg).unwrap();
+        let receive_msg = TardisFuns::json.str_to_obj::<TardisWebsocketMgrMessage>(msg.to_string().as_str()).unwrap();
         let ori_msg = TardisFuns::json.json_to_obj::<EventMessageMgrWrap>(receive_msg.msg.clone()).unwrap();
         if receive_msg.event == Some(WS_SYSTEM_EVENT_AVATAR_ADD.to_string()) {
-            return Some(TardisFuns::json.obj_to_string(&receive_msg.into_req(ori_msg.msg, ori_msg.ori_from_avatar, ori_msg.ori_to_avatars)).unwrap());
+            return Some(Message::text(
+                TardisFuns::json.obj_to_string(&receive_msg.into_req(ori_msg.msg, ori_msg.ori_from_avatar, ori_msg.ori_to_avatars)).unwrap(),
+            ));
         }
         if receive_msg.event == Some("feed_add".to_string()) {
             FEED_FROM_USER_COUNTER.fetch_add(1, Ordering::SeqCst);
-            return Some(TardisFuns::json.obj_to_string(&receive_msg.into_req(ori_msg.msg, ori_msg.ori_from_avatar, ori_msg.ori_to_avatars)).unwrap());
+            return Some(Message::text(
+                TardisFuns::json.obj_to_string(&receive_msg.into_req(ori_msg.msg, ori_msg.ori_from_avatar, ori_msg.ori_to_avatars)).unwrap(),
+            ));
         }
-        let raw_msg = TardisFuns::json.json_to_obj::<EbWebsocketMessage>(ori_msg.msg.clone()).unwrap();
+        let raw_msg = TardisFuns::json.json_to_obj::<EbWebsocketMessage>(ori_msg.msg).unwrap();
         if raw_msg.content == "test xxxx" {
             assert!(1 == 2);
             TEST_LOG_COUNTER.fetch_add(1, Ordering::SeqCst);
@@ -72,8 +77,8 @@ pub async fn test(http_client: &TestHttpClient) -> TardisResult<()> {
     // Register user listener
     let url = add_listener(vec![TrimString("test_serv".to_string())], false, vec![], http_client).await?;
     TardisFuns::ws_client(&url, move |msg| async move {
-        let receive_msg = TardisFuns::json.str_to_obj::<TardisWebsocketMessage>(&msg).unwrap();
-        let raw_msg = TardisFuns::json.json_to_obj::<EbWebsocketMessage>(receive_msg.msg.clone()).unwrap();
+        let receive_msg = TardisFuns::json.str_to_obj::<TardisWebsocketMessage>(msg.to_string().as_str()).unwrap();
+        let raw_msg = TardisFuns::json.json_to_obj::<EbWebsocketMessage>(receive_msg.msg).unwrap();
         if raw_msg.content == "test xxxx" {
             TEST_LOG_COUNTER.fetch_add(1, Ordering::SeqCst);
         }
@@ -91,8 +96,8 @@ pub async fn test(http_client: &TestHttpClient) -> TardisResult<()> {
 
     let url = add_listener(vec![TrimString("test_serv".to_string()), TrimString("feed_serv".to_string())], false, vec![], http_client).await?;
     TardisFuns::ws_client(&url, move |msg| async move {
-        let receive_msg = TardisFuns::json.str_to_obj::<TardisWebsocketMessage>(&msg).unwrap();
-        let raw_msg = TardisFuns::json.json_to_obj::<EbWebsocketMessage>(receive_msg.msg.clone()).unwrap();
+        let receive_msg = TardisFuns::json.str_to_obj::<TardisWebsocketMessage>(msg.to_string().as_str()).unwrap();
+        let raw_msg = TardisFuns::json.json_to_obj::<EbWebsocketMessage>(receive_msg.msg).unwrap();
         if raw_msg.content == "test xxxx" {
             TEST_LOG_COUNTER.fetch_add(1, Ordering::SeqCst);
         }
@@ -108,8 +113,8 @@ pub async fn test(http_client: &TestHttpClient) -> TardisResult<()> {
 
     let url = add_listener(vec![TrimString("feed_serv".to_string())], false, vec![], http_client).await?;
     let feed1_client = TardisFuns::ws_client(&url, move |msg| async move {
-        let receive_msg = TardisFuns::json.str_to_obj::<TardisWebsocketMessage>(&msg).unwrap();
-        let raw_msg = TardisFuns::json.json_to_obj::<EbWebsocketMessage>(receive_msg.msg.clone()).unwrap();
+        let receive_msg = TardisFuns::json.str_to_obj::<TardisWebsocketMessage>(msg.to_string().as_str()).unwrap();
+        let raw_msg = TardisFuns::json.json_to_obj::<EbWebsocketMessage>(receive_msg.msg).unwrap();
         if raw_msg.content == "test xxxx" {
             assert!(1 == 2);
             TEST_LOG_COUNTER.fetch_add(1, Ordering::SeqCst);
@@ -127,8 +132,8 @@ pub async fn test(http_client: &TestHttpClient) -> TardisResult<()> {
 
     let url = add_listener(vec![TrimString("others".to_string())], false, vec![], http_client).await?;
     let feed2_client = TardisFuns::ws_client(&url, move |msg| async move {
-        let receive_msg = TardisFuns::json.str_to_obj::<TardisWebsocketMessage>(&msg).unwrap();
-        let raw_msg = TardisFuns::json.json_to_obj::<EbWebsocketMessage>(receive_msg.msg.clone()).unwrap();
+        let receive_msg = TardisFuns::json.str_to_obj::<TardisWebsocketMessage>(msg.to_string().as_str()).unwrap();
+        let raw_msg = TardisFuns::json.json_to_obj::<EbWebsocketMessage>(receive_msg.msg).unwrap();
         if raw_msg.content == "test xxxx" {
             assert!(1 == 2);
             TEST_LOG_COUNTER.fetch_add(1, Ordering::SeqCst);
@@ -226,7 +231,7 @@ async fn add_listener(avatars: Vec<TrimString>, mgr: bool, events: Vec<TrimStrin
                 topic_code: TrimString("eb".to_string()),
                 topic_sk: if mgr { Some("mt001".to_string()) } else { Some("ut001".to_string()) },
                 events: if events.is_empty() { None } else { Some(events) },
-                avatars: avatars,
+                avatars,
                 subscribe_mode: !mgr,
             },
         )

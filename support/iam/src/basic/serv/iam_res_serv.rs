@@ -33,8 +33,10 @@ use crate::iam_config::IamBasicInfoManager;
 use crate::iam_constants;
 use crate::iam_enumeration::{IamRelKind, IamResKind, IamSetCateKind};
 
+use super::clients::spi_log_client::{LogParamTag, SpiLogClient};
 use super::iam_account_serv::IamAccountServ;
 use super::iam_cert_serv::IamCertServ;
+use super::iam_key_cache_serv::IamCacheResRelAddOrModifyReq;
 use super::iam_role_serv::IamRoleServ;
 
 pub struct IamResServ;
@@ -74,9 +76,10 @@ impl RbumItemCrudOperation<iam_res::ActiveModel, IamResAddReq, IamResModifyReq, 
             method: Set(add_req.method.as_ref().unwrap_or(&TrimString("*".to_string())).to_string()),
             hide: Set(add_req.hide.unwrap_or(false)),
             action: Set(add_req.action.as_ref().unwrap_or(&"".to_string()).to_string()),
-            crypto_req: Set(add_req.crypto_req),
-            crypto_resp: Set(add_req.crypto_resp),
-            double_auth: Set(add_req.double_auth),
+            crypto_req: Set(add_req.crypto_req.unwrap_or(false)),
+            crypto_resp: Set(add_req.crypto_resp.unwrap_or(false)),
+            double_auth: Set(add_req.double_auth.unwrap_or(false)),
+            double_auth_msg: Set(add_req.double_auth_msg.as_ref().unwrap_or(&"".to_string()).to_string()),
             ..Default::default()
         })
     }
@@ -103,6 +106,15 @@ impl RbumItemCrudOperation<iam_res::ActiveModel, IamResAddReq, IamResModifyReq, 
         if res.kind == IamResKind::Api {
             IamResCacheServ::add_res(&res.code, &res.method, res.crypto_req, res.crypto_resp, res.double_auth, funs).await?;
         }
+        let (op_describe, op_kind) = match res.kind {
+            IamResKind::Menu => ("添加目录页面".to_string(), "AddContentPageaspersonal".to_string()),
+            IamResKind::Api => ("添加API".to_string(), "AddApi".to_string()),
+            IamResKind::Ele => ("添加目录页面按钮".to_string(), "AddContentPageButton".to_string()),
+        };
+        if !op_describe.is_empty() {
+            let _ = SpiLogClient::add_ctx_task(LogParamTag::IamRes, Some(id.to_string()), op_describe, Some(op_kind), ctx).await;
+        }
+
         Ok(())
     }
 
@@ -119,7 +131,14 @@ impl RbumItemCrudOperation<iam_res::ActiveModel, IamResAddReq, IamResModifyReq, 
     }
 
     async fn package_ext_modify(id: &str, modify_req: &IamResModifyReq, _: &TardisFunsInst, _: &TardisContext) -> TardisResult<Option<iam_res::ActiveModel>> {
-        if modify_req.icon.is_none() && modify_req.sort.is_none() && modify_req.hide.is_none() && modify_req.action.is_none() {
+        if modify_req.icon.is_none()
+            && modify_req.sort.is_none()
+            && modify_req.hide.is_none()
+            && modify_req.action.is_none()
+            && modify_req.crypto_req.is_none()
+            && modify_req.crypto_resp.is_none()
+            && modify_req.double_auth.is_none()
+        {
             return Ok(None);
         }
         let mut iam_res = iam_res::ActiveModel {
@@ -147,24 +166,47 @@ impl RbumItemCrudOperation<iam_res::ActiveModel, IamResAddReq, IamResModifyReq, 
         if let Some(double_auth) = modify_req.double_auth {
             iam_res.double_auth = Set(double_auth);
         }
+        if let Some(double_auth_msg) = &modify_req.double_auth_msg {
+            iam_res.double_auth_msg = Set(double_auth_msg.to_string());
+        }
         Ok(Some(iam_res))
     }
 
     async fn after_modify_item(id: &str, modify_req: &mut IamResModifyReq, funs: &TardisFunsInst, ctx: &TardisContext) -> TardisResult<()> {
-        if let Some(disabled) = modify_req.disabled {
-            let res = Self::peek_item(
-                id,
-                &IamResFilterReq {
-                    basic: RbumBasicFilterReq {
-                        with_sub_own_paths: true,
-                        ..Default::default()
-                    },
+        let res = Self::peek_item(
+            id,
+            &IamResFilterReq {
+                basic: RbumBasicFilterReq {
+                    with_sub_own_paths: true,
                     ..Default::default()
                 },
+                ..Default::default()
+            },
+            funs,
+            ctx,
+        )
+        .await?;
+        if modify_req.crypto_req.is_some() || modify_req.crypto_resp.is_some() || modify_req.double_auth.is_some() {
+            IamResCacheServ::add_or_modify_res_rel(
+                &res.code,
+                &res.method,
+                &IamCacheResRelAddOrModifyReq {
+                    st: None,
+                    et: None,
+                    accounts: vec![],
+                    roles: vec![],
+                    groups: vec![],
+                    apps: vec![],
+                    tenants: vec![],
+                    need_crypto_req: modify_req.crypto_req,
+                    need_crypto_resp: modify_req.crypto_resp,
+                    need_double_auth: modify_req.double_auth,
+                },
                 funs,
-                ctx,
             )
             .await?;
+        }
+        if let Some(disabled) = modify_req.disabled {
             if res.kind == IamResKind::Api {
                 if disabled {
                     IamResCacheServ::delete_res(&res.code, &res.method, funs).await?;
@@ -173,6 +215,16 @@ impl RbumItemCrudOperation<iam_res::ActiveModel, IamResAddReq, IamResModifyReq, 
                 }
             }
         }
+
+        let (op_describe, op_kind) = match res.kind {
+            IamResKind::Menu => ("编辑目录页面".to_string(), "ModifyContentPage".to_string()),
+            IamResKind::Api => ("编辑API".to_string(), "ModifyApi".to_string()),
+            IamResKind::Ele => ("".to_string(), "".to_string()),
+        };
+        if !op_describe.is_empty() {
+            let _ = SpiLogClient::add_ctx_task(LogParamTag::IamRes, Some(id.to_string()), op_describe, Some(op_kind), ctx).await;
+        }
+
         Ok(())
     }
 
@@ -194,11 +246,20 @@ impl RbumItemCrudOperation<iam_res::ActiveModel, IamResAddReq, IamResModifyReq, 
         ))
     }
 
-    async fn after_delete_item(_: &str, deleted_item: &Option<IamResDetailResp>, funs: &TardisFunsInst, _: &TardisContext) -> TardisResult<()> {
+    async fn after_delete_item(_: &str, deleted_item: &Option<IamResDetailResp>, funs: &TardisFunsInst, ctx: &TardisContext) -> TardisResult<()> {
         if let Some(deleted_item) = deleted_item {
             if deleted_item.kind == IamResKind::Api {
                 IamResCacheServ::delete_res(&deleted_item.code, &deleted_item.method, funs).await?;
             }
+            let (op_describe, op_kind) = match deleted_item.kind {
+                IamResKind::Menu => ("删除目录页面".to_string(), "DeleteContentPageAsPersonal".to_string()),
+                IamResKind::Api => ("删除API".to_string(), "DeleteApi".to_string()),
+                IamResKind::Ele => ("移除目录页面按钮".to_string(), "RemoveContentPageButton".to_string()),
+            };
+            if !op_describe.is_empty() {
+                let _ = SpiLogClient::add_ctx_task(LogParamTag::IamRes, Some(deleted_item.id.to_string()), op_describe, Some(op_kind), ctx).await;
+            }
+
             Ok(())
         } else {
             Err(funs.err().not_found(&Self::get_obj_name(), "delete", "not found resource", "404-iam-res-not-exist"))
@@ -215,6 +276,7 @@ impl RbumItemCrudOperation<iam_res::ActiveModel, IamResAddReq, IamResModifyReq, 
         query.column((iam_res::Entity, iam_res::Column::CryptoReq));
         query.column((iam_res::Entity, iam_res::Column::CryptoResp));
         query.column((iam_res::Entity, iam_res::Column::DoubleAuth));
+        query.column((iam_res::Entity, iam_res::Column::DoubleAuthMsg));
         if let Some(kind) = &filter.kind {
             query.and_where(Expr::col(iam_res::Column::Kind).eq(kind.to_int()));
         }
@@ -550,9 +612,10 @@ impl IamMenuServ {
                     action: None,
                     scope_level: Some(iam_constants::RBUM_SCOPE_LEVEL_GLOBAL),
                     disabled: None,
-                    crypto_req: false,
-                    crypto_resp: false,
-                    double_auth: false,
+                    crypto_req: None,
+                    crypto_resp: None,
+                    double_auth: None,
+                    double_auth_msg: None,
                 },
                 set: IamSetItemAggAddReq {
                     set_cate_id: cate_menu_id.to_string(),
@@ -579,9 +642,10 @@ impl IamMenuServ {
                     action: None,
                     scope_level: Some(iam_constants::RBUM_SCOPE_LEVEL_GLOBAL),
                     disabled: None,
-                    crypto_req: false,
-                    crypto_resp: false,
-                    double_auth: false,
+                    crypto_req: None,
+                    crypto_resp: None,
+                    double_auth: None,
+                    double_auth_msg: None,
                 },
                 set: IamSetItemAggAddReq {
                     set_cate_id: cate_menu_id.to_string(),

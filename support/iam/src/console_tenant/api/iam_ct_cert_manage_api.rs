@@ -12,7 +12,6 @@ use crate::basic::dto::iam_cert_dto::{IamCertManageAddReq, IamCertManageModifyRe
 use crate::basic::serv::iam_cert_serv::IamCertServ;
 use crate::iam_constants;
 use crate::iam_enumeration::IamCertExtKind;
-
 pub struct IamCtCertManageApi;
 
 /// Tenant Console Cert manage API
@@ -43,6 +42,7 @@ impl IamCtCertManageApi {
         funs.begin().await?;
         let id = IamCertServ::add_manage_cert(&add_req.0, &funs, &ctx.0).await?;
         funs.commit().await?;
+        ctx.0.execute_task().await?;
         TardisResp::ok(id)
     }
 
@@ -53,6 +53,7 @@ impl IamCtCertManageApi {
         funs.begin().await?;
         IamCertServ::modify_manage_cert(&id.0, &modify_req.0, &funs, &ctx.0).await?;
         funs.commit().await?;
+        ctx.0.execute_task().await?;
         TardisResp::ok(Void {})
     }
 
@@ -63,6 +64,7 @@ impl IamCtCertManageApi {
         funs.begin().await?;
         IamCertServ::modify_manage_cert_ext(&id.0, &ext.0, &funs, &ctx.0).await?;
         funs.commit().await?;
+        ctx.0.execute_task().await?;
         TardisResp::ok(Void {})
     }
 
@@ -72,6 +74,7 @@ impl IamCtCertManageApi {
         let funs = iam_constants::get_tardis_inst();
         let ctx = IamCertServ::use_sys_or_tenant_ctx_unsafe(ctx.0)?;
         let cert = IamCertServ::get_3th_kind_cert_by_id(&id.0, &funs, &ctx).await?;
+        ctx.execute_task().await?;
         TardisResp::ok(cert)
     }
 
@@ -82,6 +85,7 @@ impl IamCtCertManageApi {
         funs.begin().await?;
         IamCertServ::delete_manage_cert(&id.0, &funs, &ctx.0).await?;
         funs.commit().await?;
+        ctx.0.execute_task().await?;
         TardisResp::ok(Void {})
     }
 
@@ -109,6 +113,7 @@ impl IamCtCertManageApi {
             &ctx.0,
         )
         .await?;
+        ctx.0.execute_task().await?;
         TardisResp::ok(result)
     }
 
@@ -125,6 +130,7 @@ impl IamCtCertManageApi {
     ) -> TardisApiResult<Void> {
         let funs = iam_constants::get_tardis_inst();
         IamCertServ::add_rel_cert(&id.0, &item_id.0, note.0, ext.0, own_paths.0, &funs, &ctx.0).await?;
+        ctx.0.execute_task().await?;
         TardisResp::ok(Void {})
     }
 
@@ -133,6 +139,7 @@ impl IamCtCertManageApi {
     async fn delete_rel_item(&self, id: Path<String>, item_id: Path<String>, ctx: TardisContextExtractor) -> TardisApiResult<Void> {
         let funs = iam_constants::get_tardis_inst();
         IamCertServ::delete_rel_cert(&id.0, &item_id.0, &funs, &ctx.0).await?;
+        ctx.0.execute_task().await?;
         TardisResp::ok(Void {})
     }
 
@@ -142,6 +149,7 @@ impl IamCtCertManageApi {
         let funs = iam_constants::get_tardis_inst();
         let ctx = IamCertServ::use_sys_or_tenant_ctx_unsafe(ctx.0)?;
         let rbum_certs = IamCertServ::find_to_simple_rel_cert(&item_id.0, None, None, &funs, &ctx).await?;
+        ctx.execute_task().await?;
         TardisResp::ok(rbum_certs)
     }
 }

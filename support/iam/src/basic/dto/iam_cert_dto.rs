@@ -40,6 +40,7 @@ pub struct IamCertUserPwdAddReq {
     pub ak: TrimString,
     #[oai(validator(min_length = "2", max_length = "255"))]
     pub sk: TrimString,
+    pub is_ignore_check_sk: bool,
     pub status: Option<RbumCertStatusKind>,
 }
 
@@ -54,17 +55,24 @@ pub struct IamCertUserPwdModifyReq {
 #[derive(poem_openapi::Object, Serialize, Deserialize, Debug)]
 pub struct IamCertUserPwdRestReq {
     #[oai(validator(min_length = "2", max_length = "255"))]
-    pub new_sk: TrimString,
+    pub new_sk: Option<TrimString>,
 }
 
 #[derive(poem_openapi::Object, Serialize, Deserialize, Debug)]
-pub struct IamCertUserPwdValidateSkReq {
+pub struct IamCertGenericValidateSkReq {
     #[oai(validator(min_length = "2", max_length = "255"))]
     pub sk: TrimString,
+    pub validate_type: Option<String>,
 }
 
 #[derive(poem_openapi::Object, Serialize, Deserialize, Debug)]
 pub struct IamCertMailVCodeAddReq {
+    #[oai(validator(min_length = "2", max_length = "255", custom = "tardis::web::web_validation::Mail"))]
+    pub mail: String,
+}
+
+#[derive(poem_openapi::Object, Serialize, Deserialize, Debug)]
+pub struct IamCertMailVCodeModifyReq {
     #[oai(validator(min_length = "2", max_length = "255", custom = "tardis::web::web_validation::Mail"))]
     pub mail: String,
 }
@@ -90,6 +98,12 @@ pub struct IamCertPhoneVCodeAddReq {
 }
 
 #[derive(poem_openapi::Object, Serialize, Deserialize, Debug)]
+pub struct IamCertPhoneVCodeModifyReq {
+    #[oai(validator(min_length = "2", max_length = "255"))]
+    pub phone: TrimString,
+}
+
+#[derive(poem_openapi::Object, Serialize, Deserialize, Debug)]
 pub struct IamCertPhoneVCodeBindReq {
     #[oai(validator(min_length = "2", max_length = "255"))]
     pub phone: String,
@@ -104,7 +118,7 @@ pub struct IamThirdPartyCertExtAddReq {
     #[oai(validator(min_length = "1", max_length = "255"))]
     // todo change to String
     pub supplier: Option<String>,
-    #[oai(validator(min_length = "2", max_length = "255"))]
+    #[oai(validator(min_length = "2", max_length = "10000"))]
     pub sk: Option<String>,
     pub ext: Option<String>,
 }
@@ -132,9 +146,11 @@ pub struct IamThirdIntegrationConfigDto {
 pub struct IamCertManageAddReq {
     #[oai(validator(min_length = "2", max_length = "255"))]
     pub ak: String,
-    #[oai(validator(min_length = "2", max_length = "255"))]
+    #[oai(validator(min_length = "2", max_length = "10000"))]
     pub sk: Option<String>,
     #[oai(validator(min_length = "2", max_length = "255"))]
+    pub conn_uri: Option<String>,
+    #[oai(validator(min_length = "2", max_length = "2000"))]
     pub supplier: String,
     #[oai(validator(min_length = "2", max_length = "2000"))]
     pub ext: Option<String>,
@@ -144,8 +160,10 @@ pub struct IamCertManageAddReq {
 pub struct IamCertManageModifyReq {
     #[oai(validator(min_length = "2", max_length = "255"))]
     pub ak: String,
-    #[oai(validator(min_length = "2", max_length = "255"))]
+    #[oai(validator(min_length = "2", max_length = "10000"))]
     pub sk: Option<String>,
+    #[oai(validator(min_length = "2", max_length = "2000"))]
+    pub conn_uri: Option<String>,
     #[oai(validator(min_length = "2", max_length = "2000"))]
     pub ext: Option<String>,
 }

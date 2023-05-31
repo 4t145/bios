@@ -4,14 +4,13 @@ use tardis::web::poem_openapi;
 use tardis::web::poem_openapi::{param::Path, param::Query, payload::Json};
 use tardis::web::web_resp::{TardisApiResult, TardisPage, TardisResp};
 
-use bios_basic::rbum::dto::rbum_filer_dto::RbumBasicFilterReq;
-use bios_basic::rbum::serv::rbum_item_serv::RbumItemCrudOperation;
-
 use crate::basic::dto::iam_filer_dto::IamTenantFilterReq;
 use crate::basic::dto::iam_tenant_dto::{IamTenantAggAddReq, IamTenantAggDetailResp, IamTenantAggModifyReq, IamTenantSummaryResp};
 use crate::basic::serv::iam_cert_serv::IamCertServ;
 use crate::basic::serv::iam_tenant_serv::IamTenantServ;
 use crate::iam_constants;
+use bios_basic::rbum::dto::rbum_filer_dto::RbumBasicFilterReq;
+use bios_basic::rbum::serv::rbum_item_serv::RbumItemCrudOperation;
 
 pub struct IamCsTenantApi;
 
@@ -20,11 +19,12 @@ pub struct IamCsTenantApi;
 impl IamCsTenantApi {
     /// Add Tenant
     #[oai(path = "/", method = "post")]
-    async fn add(&self, add_req: Json<IamTenantAggAddReq>, _ctx: TardisContextExtractor) -> TardisApiResult<String> {
+    async fn add(&self, add_req: Json<IamTenantAggAddReq>, ctx: TardisContextExtractor) -> TardisApiResult<String> {
         let mut funs = iam_constants::get_tardis_inst();
         funs.begin().await?;
         let result = IamTenantServ::add_tenant_agg(&add_req.0, &funs).await?.0;
         funs.commit().await?;
+        ctx.0.execute_task().await?;
         TardisResp::ok(result)
     }
 
@@ -44,7 +44,8 @@ impl IamCsTenantApi {
         funs.begin().await?;
         IamTenantServ::modify_tenant_agg(&id.0, &modify_req.0, &funs, &ctx).await?;
         funs.commit().await?;
-        if let Some(task_id) = TaskProcessor::get_task_id_with_ctx(&ctx)? {
+        ctx.execute_task().await?;
+        if let Some(task_id) = TaskProcessor::get_task_id_with_ctx(&ctx).await? {
             TardisResp::accepted(Some(task_id))
         } else {
             TardisResp::ok(None)
@@ -69,6 +70,7 @@ impl IamCsTenantApi {
             &ctx,
         )
         .await?;
+        ctx.execute_task().await?;
         TardisResp::ok(result)
     }
 
@@ -103,6 +105,7 @@ impl IamCsTenantApi {
             &ctx.0,
         )
         .await?;
+        ctx.0.execute_task().await?;
         TardisResp::ok(result)
     }
 }

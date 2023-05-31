@@ -9,23 +9,66 @@ use bios_basic::rbum::serv::rbum_cert_serv::RbumCertServ;
 use bios_basic::rbum::serv::rbum_crud_serv::RbumCrudOperation;
 use bios_basic::rbum::serv::rbum_item_serv::RbumItemCrudOperation;
 
-use crate::basic::dto::iam_account_dto::IamAccountInfoResp;
+use crate::basic::dto::iam_account_dto::{IamAccountInfoResp, IamAccountModifyReq};
 use crate::basic::dto::iam_cert_dto::{IamCertPwdNewReq, IamCertUserNameNewReq, IamCertUserPwdModifyReq};
+use crate::basic::serv::clients::spi_log_client::{LogParamTag, SpiLogClient};
 use crate::basic::serv::iam_account_serv::IamAccountServ;
+use crate::basic::serv::iam_cert_ldap_serv::IamCertLdapServ;
 use crate::basic::serv::iam_cert_serv::IamCertServ;
 use crate::basic::serv::iam_cert_user_pwd_serv::IamCertUserPwdServ;
 use crate::basic::serv::iam_key_cache_serv::IamIdentCacheServ;
 use crate::basic::serv::iam_tenant_serv::IamTenantServ;
 use crate::console_passport::dto::iam_cp_cert_dto::IamCpUserPwdLoginReq;
-use crate::iam_enumeration::IamCertKernelKind;
+use crate::iam_enumeration::{IamAccountStatusKind, IamCertKernelKind};
 
 pub struct IamCpCertUserPwdServ;
 
 impl IamCpCertUserPwdServ {
     pub async fn new_pwd_without_login(pwd_new_req: &IamCertPwdNewReq, funs: &TardisFunsInst) -> TardisResult<()> {
-        let tenant_id = Self::get_tenant_id(pwd_new_req.tenant_id.clone(), funs).await?;
-        let rbum_cert_conf_id = IamCertServ::get_cert_conf_id_by_kind(&IamCertKernelKind::UserPwd.to_string(), Some(tenant_id.clone()), funs).await?;
-        let (_, _, rbum_item_id) = RbumCertServ::validate_by_spec_cert_conf(&pwd_new_req.ak.0, &pwd_new_req.original_sk.0, &rbum_cert_conf_id, true, &tenant_id, funs).await?;
+        let mut tenant_id = Self::get_tenant_id(pwd_new_req.tenant_id.clone(), funs).await?;
+        let mut rbum_cert_conf_id = IamCertServ::get_cert_conf_id_by_kind(&IamCertKernelKind::UserPwd.to_string(), Some(tenant_id.clone()), funs).await?;
+        let validate_resp = IamCertServ::validate_by_ak_and_sk(
+            &pwd_new_req.ak.0,
+            &pwd_new_req.original_sk.0,
+            None,
+            Some(&RbumCertRelKind::Item),
+            true,
+            Some(tenant_id.clone()),
+            Some(vec![
+                &IamCertKernelKind::UserPwd.to_string(),
+                &IamCertKernelKind::MailVCode.to_string(),
+                &IamCertKernelKind::PhoneVCode.to_string(),
+            ]),
+            funs,
+        )
+        .await;
+        let (_, _, rbum_item_id) = if validate_resp.is_ok() {
+            validate_resp.unwrap()
+        } else {
+            if let Some(e) = validate_resp.clone().err() {
+                // throw out Err when sk is expired and cert is locked
+                if e.code == "409-iam-cert-valid" || e.code == "401-iam-cert-valid_lock" {
+                    validate_resp?;
+                }
+            };
+            tenant_id = "".to_string();
+            rbum_cert_conf_id = IamCertServ::get_cert_conf_id_by_kind(&IamCertKernelKind::UserPwd.to_string(), Some(tenant_id.clone()), funs).await?;
+            IamCertServ::validate_by_ak_and_sk(
+                &pwd_new_req.ak.0,
+                &pwd_new_req.original_sk.0,
+                None,
+                Some(&RbumCertRelKind::Item),
+                true,
+                Some("".to_string()),
+                Some(vec![
+                    &IamCertKernelKind::UserPwd.to_string(),
+                    &IamCertKernelKind::MailVCode.to_string(),
+                    &IamCertKernelKind::PhoneVCode.to_string(),
+                ]),
+                funs,
+            )
+            .await?
+        };
         let ctx = TardisContext {
             own_paths: tenant_id.clone(),
             ak: pwd_new_req.ak.to_string(),
@@ -34,6 +77,21 @@ impl IamCpCertUserPwdServ {
             groups: vec![],
             ..Default::default()
         };
+        IamAccountServ::modify_item(
+            &rbum_item_id,
+            &mut IamAccountModifyReq {
+                name: None,
+                scope_level: None,
+                disabled: None,
+                status: Some(IamAccountStatusKind::Active),
+                is_auto: Some(false),
+                icon: None,
+                lock_status: None,
+            },
+            funs,
+            &ctx,
+        )
+        .await?;
         IamCertUserPwdServ::modify_cert(
             &IamCertUserPwdModifyReq {
                 original_sk: pwd_new_req.original_sk.clone(),
@@ -55,21 +113,27 @@ impl IamCpCertUserPwdServ {
         };
         let ctx = IamAccountServ::new_context_if_account_is_global(ctx, funs).await?;
         let rbum_cert_conf_id = IamCertServ::get_cert_conf_id_by_kind(&IamCertKernelKind::UserPwd.to_string(), tenant_id.clone(), funs).await?;
-        let _ = RbumCertServ::validate_by_ak_and_basic_sk(
+        let _ = IamCertServ::validate_by_ak_and_sk(
             &req.original_ak.0,
             &req.sk.0,
-            &RbumCertRelKind::Item,
+            None,
+            Some(&RbumCertRelKind::Item),
             false,
             tenant_id,
-            vec![
+            Some(vec![
                 &IamCertKernelKind::UserPwd.to_string(),
                 &IamCertKernelKind::MailVCode.to_string(),
                 &IamCertKernelKind::PhoneVCode.to_string(),
-            ],
+            ]),
             funs,
         )
         .await?;
         IamCertUserPwdServ::modify_ak_cert(req, &rbum_cert_conf_id, funs, &ctx).await?;
+
+        let id = ctx.owner.to_string();
+        let op_describe = format!("修改用户名为{}", req.new_ak.as_ref());
+        let _ = SpiLogClient::add_ctx_task(LogParamTag::IamAccount, Some(id.to_string()), op_describe, Some("ModifyUserName".to_string()), &ctx).await;
+
         Ok(())
     }
 
@@ -86,28 +150,38 @@ impl IamCpCertUserPwdServ {
         IamCertUserPwdServ::modify_cert(modify_req, id, &rbum_cert_conf_id, funs, &actual_ctx).await
     }
 
+    pub async fn generic_sk_validate(sk: &str, supplier: Option<String>, funs: &TardisFunsInst, ctx: &TardisContext) -> TardisResult<()> {
+        if let Some(supplier) = supplier {
+            IamCertLdapServ::validate_by_ldap(sk, &supplier, funs, ctx).await?;
+        } else {
+            Self::validate_by_user_pwd(sk, funs, ctx).await?;
+        }
+        IamIdentCacheServ::add_double_auth(&ctx.owner, funs).await?;
+        Ok(())
+    }
+
     pub async fn validate_by_user_pwd(sk: &str, funs: &TardisFunsInst, ctx: &TardisContext) -> TardisResult<()> {
         let rbum_cert_conf_id = IamCertServ::get_cert_conf_id_by_kind(IamCertKernelKind::UserPwd.to_string().as_str(), get_max_level_id_by_context(ctx), funs).await?;
         let user_pwd_cert = IamCertServ::get_kernel_cert(&ctx.owner, &IamCertKernelKind::UserPwd, funs, ctx).await?;
 
-        let (_, _, _) = RbumCertServ::validate_by_spec_cert_conf(&user_pwd_cert.ak, sk, &rbum_cert_conf_id, false, &ctx.own_paths, funs).await?;
-        IamIdentCacheServ::add_double_auth(&ctx.owner, funs).await?;
+        let (_, _, _) = IamCertServ::validate_by_ak_and_sk(&user_pwd_cert.ak, sk, Some(&rbum_cert_conf_id), None, false, Some(ctx.own_paths.clone()), None, funs).await?;
         Ok(())
     }
 
     pub async fn login_by_user_pwd(login_req: &IamCpUserPwdLoginReq, funs: &TardisFunsInst) -> TardisResult<IamAccountInfoResp> {
         let tenant_id = Self::get_tenant_id(login_req.tenant_id.clone(), funs).await?;
-        let validate_resp = RbumCertServ::validate_by_ak_and_basic_sk(
+        let validate_resp = IamCertServ::validate_by_ak_and_sk(
             &login_req.ak.0,
             &login_req.sk.0,
-            &RbumCertRelKind::Item,
+            None,
+            Some(&RbumCertRelKind::Item),
             false,
             Some(tenant_id),
-            vec![
+            Some(vec![
                 &IamCertKernelKind::UserPwd.to_string(),
                 &IamCertKernelKind::MailVCode.to_string(),
                 &IamCertKernelKind::PhoneVCode.to_string(),
-            ],
+            ]),
             funs,
         )
         .await;
@@ -120,17 +194,18 @@ impl IamCpCertUserPwdServ {
                     validate_resp?;
                 }
             };
-            RbumCertServ::validate_by_ak_and_basic_sk(
+            IamCertServ::validate_by_ak_and_sk(
                 &login_req.ak.0,
                 &login_req.sk.0,
-                &RbumCertRelKind::Item,
+                None,
+                Some(&RbumCertRelKind::Item),
                 false,
                 Some("".to_string()),
-                vec![
+                Some(vec![
                     &IamCertKernelKind::UserPwd.to_string(),
                     &IamCertKernelKind::MailVCode.to_string(),
                     &IamCertKernelKind::PhoneVCode.to_string(),
-                ],
+                ]),
                 funs,
             )
             .await?

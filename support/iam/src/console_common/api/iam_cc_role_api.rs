@@ -55,6 +55,7 @@ impl IamCcRoleApi {
             &ctx.0,
         )
         .await?;
+        ctx.0.execute_task().await?;
         TardisResp::ok(TardisPage {
             page_size: result.page_size,
             page_number: result.page_number,
@@ -107,6 +108,7 @@ impl IamCcRoleApi {
             &ctx,
         )
         .await?;
+        ctx.execute_task().await?;
         TardisResp::ok(result)
     }
 }

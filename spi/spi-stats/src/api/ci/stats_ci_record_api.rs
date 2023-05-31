@@ -1,4 +1,4 @@
-use bios_basic::spi::spi_funs::SpiTardisFunInstExtractor;
+use bios_basic::TardisFunInstExtractor;
 use tardis::chrono::{DateTime, Utc};
 use tardis::serde_json::Value;
 use tardis::web::context_extractor::TardisContextExtractor;
@@ -58,6 +58,21 @@ impl StatsCiRecordApi {
     async fn fact_records_delete(&self, fact_key: Path<String>, delete_req: Json<Vec<String>>, ctx: TardisContextExtractor, request: &Request) -> TardisApiResult<Void> {
         let funs = request.tardis_fun_inst();
         stats_record_serv::fact_records_delete(fact_key.0, delete_req.0, &funs, &ctx.0).await?;
+        TardisResp::ok(Void {})
+    }
+
+    /// Delete Fact Records
+    #[oai(path = "/fact/:fact_key/dim/:dim_conf_key/batch/remove", method = "put")]
+    async fn fact_records_delete_by_dim_key(
+        &self,
+        fact_key: Path<String>,
+        dim_conf_key: Path<String>,
+        delete_req: Json<StatsDimRecordDeleteReq>,
+        ctx: TardisContextExtractor,
+        request: &Request,
+    ) -> TardisApiResult<Void> {
+        let funs = request.tardis_fun_inst();
+        stats_record_serv::fact_records_delete_by_dim_key(fact_key.0, dim_conf_key.0, Some(delete_req.0.key), &funs, &ctx.0).await?;
         TardisResp::ok(Void {})
     }
 

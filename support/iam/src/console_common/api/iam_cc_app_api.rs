@@ -49,6 +49,7 @@ impl IamCcAppApi {
             &ctx.0,
         )
         .await?;
+        ctx.0.execute_task().await?;
         TardisResp::ok(result)
     }
 
@@ -79,6 +80,7 @@ impl IamCcAppApi {
             &ctx.0,
         )
         .await?;
+        ctx.0.execute_task().await?;
         TardisResp::ok(result)
     }
 }

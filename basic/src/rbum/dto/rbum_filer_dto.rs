@@ -21,7 +21,9 @@ pub struct RbumBasicFilterReq {
     pub scope_level: Option<RbumScopeLevelKind>,
     pub enabled: Option<bool>,
     pub name: Option<String>,
+    pub names: Option<Vec<String>>,
     pub code: Option<String>,
+    pub codes: Option<Vec<String>>,
     pub rbum_kind_id: Option<String>,
     pub rbum_domain_id: Option<String>,
 
@@ -158,6 +160,7 @@ pub struct RbumSetItemFilterReq {
     pub rel_rbum_set_cate_ids: Option<Vec<String>>,
     pub rel_rbum_item_disabled: Option<bool>,
     pub rel_rbum_item_ids: Option<Vec<String>>,
+    pub rel_rbum_item_scope_level: Option<RbumScopeLevelKind>,
     pub rel_rbum_item_kind_ids: Option<Vec<String>>,
     pub rel_rbum_item_domain_ids: Option<Vec<String>>,
 }

@@ -15,7 +15,6 @@ use crate::basic::serv::iam_role_serv::IamRoleServ;
 use crate::iam_constants;
 use crate::iam_constants::RBUM_SCOPE_LEVEL_TENANT;
 use crate::iam_enumeration::IamRoleKind;
-
 pub struct IamCtRoleApi;
 
 /// Tenant Console Role API
@@ -29,6 +28,7 @@ impl IamCtRoleApi {
         add_req.0.role.kind = Some(IamRoleKind::Tenant);
         let result = IamRoleServ::add_role_agg(&mut add_req.0, &funs, &ctx.0).await?;
         funs.commit().await?;
+        ctx.0.execute_task().await?;
         TardisResp::ok(result)
     }
 
@@ -41,7 +41,8 @@ impl IamCtRoleApi {
         funs.begin().await?;
         IamRoleServ::modify_role_agg(&id.0, &mut modify_req.0, &funs, &ctx.0).await?;
         funs.commit().await?;
-        if let Some(task_id) = TaskProcessor::get_task_id_with_ctx(&ctx.0)? {
+        ctx.0.execute_task().await?;
+        if let Some(task_id) = TaskProcessor::get_task_id_with_ctx(&ctx.0).await? {
             TardisResp::accepted(Some(task_id))
         } else {
             TardisResp::ok(None)
@@ -53,6 +54,7 @@ impl IamCtRoleApi {
     async fn get(&self, id: Path<String>, ctx: TardisContextExtractor) -> TardisApiResult<IamRoleDetailResp> {
         let funs = iam_constants::get_tardis_inst();
         let result = IamRoleServ::get_item(&id.0, &IamRoleFilterReq::default(), &funs, &ctx.0).await?;
+        ctx.0.execute_task().await?;
         TardisResp::ok(result)
     }
 
@@ -91,6 +93,7 @@ impl IamCtRoleApi {
             &ctx,
         )
         .await?;
+        ctx.execute_task().await?;
         TardisResp::ok(result)
     }
 
@@ -101,6 +104,7 @@ impl IamCtRoleApi {
         funs.begin().await?;
         IamRoleServ::delete_item_with_all_rels(&id.0, &funs, &ctx.0).await?;
         funs.commit().await?;
+        ctx.0.execute_task().await?;
         TardisResp::ok(Void {})
     }
 
@@ -111,6 +115,7 @@ impl IamCtRoleApi {
         funs.begin().await?;
         IamRoleServ::add_rel_account(&id.0, &account_id.0, Some(RBUM_SCOPE_LEVEL_TENANT), &funs, &ctx.0).await?;
         funs.commit().await?;
+        ctx.0.execute_task().await?;
         TardisResp::ok(Void {})
     }
 
@@ -124,6 +129,7 @@ impl IamCtRoleApi {
             IamRoleServ::add_rel_account(&id.0, s, Some(RBUM_SCOPE_LEVEL_TENANT), &funs, &ctx.0).await?;
         }
         funs.commit().await?;
+        ctx.0.execute_task().await?;
         TardisResp::ok(Void {})
     }
 
@@ -134,6 +140,7 @@ impl IamCtRoleApi {
         funs.begin().await?;
         IamRoleServ::delete_rel_account(&id.0, &account_id.0, Some(RBUM_SCOPE_LEVEL_TENANT), &funs, &ctx.0).await?;
         funs.commit().await?;
+        ctx.0.execute_task().await?;
         TardisResp::ok(Void {})
     }
 
@@ -147,6 +154,7 @@ impl IamCtRoleApi {
             IamRoleServ::delete_rel_account(&id.0, s, Some(RBUM_SCOPE_LEVEL_TENANT), &funs, &ctx.0).await?;
         }
         funs.commit().await?;
+        ctx.0.execute_task().await?;
         TardisResp::ok(Void {})
     }
 
@@ -155,6 +163,7 @@ impl IamCtRoleApi {
     async fn count_rel_accounts(&self, id: Path<String>, ctx: TardisContextExtractor) -> TardisApiResult<u64> {
         let funs = iam_constants::get_tardis_inst();
         let result = IamRoleServ::count_rel_accounts(&id.0, &funs, &ctx.0).await?;
+        ctx.0.execute_task().await?;
         TardisResp::ok(result)
     }
 
@@ -165,6 +174,7 @@ impl IamCtRoleApi {
         funs.begin().await?;
         IamRoleServ::add_rel_res(&id.0, &res_id.0, &funs, &ctx.0).await?;
         funs.commit().await?;
+        ctx.0.execute_task().await?;
         TardisResp::ok(Void {})
     }
 
@@ -175,6 +185,7 @@ impl IamCtRoleApi {
         funs.begin().await?;
         IamRoleServ::delete_rel_res(&id.0, &res_id.0, &funs, &ctx.0).await?;
         funs.commit().await?;
+        ctx.0.execute_task().await?;
         TardisResp::ok(Void {})
     }
 
@@ -183,6 +194,7 @@ impl IamCtRoleApi {
     async fn count_rel_res(&self, id: Path<String>, ctx: TardisContextExtractor) -> TardisApiResult<u64> {
         let funs = iam_constants::get_tardis_inst();
         let result = IamRoleServ::count_rel_res(&id.0, &funs, &ctx.0).await?;
+        ctx.0.execute_task().await?;
         TardisResp::ok(result)
     }
 
@@ -197,6 +209,7 @@ impl IamCtRoleApi {
     ) -> TardisApiResult<Vec<RbumRelBoneResp>> {
         let funs = iam_constants::get_tardis_inst();
         let result = IamRoleServ::find_simple_rel_res(&id.0, desc_by_create.0, desc_by_update.0, &funs, &ctx.0).await?;
+        ctx.0.execute_task().await?;
         TardisResp::ok(result)
     }
 }

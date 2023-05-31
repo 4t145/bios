@@ -9,7 +9,7 @@ use tardis::{
     TardisFuns,
 };
 
-use crate::dto::auth_kernel_dto::ResContainerLeafInfo;
+use crate::dto::auth_kernel_dto::{MixAuthResp, MixRequestBody, ResContainerLeafInfo};
 use crate::helper::auth_common_helper;
 use crate::{
     auth_config::AuthConfig,
@@ -19,7 +19,7 @@ use crate::{
 
 use super::{auth_crypto_serv, auth_mgr_serv, auth_res_serv};
 
-pub(crate) async fn auth(req: &mut AuthReq) -> TardisResult<AuthResp> {
+pub(crate) async fn auth(req: &mut AuthReq, is_mix_req: bool) -> TardisResult<AuthResp> {
     trace!("[Auth] Request auth: {:?}", req);
     let config = TardisFuns::cs_config::<AuthConfig>(DOMAIN_CODE);
     match check(req) {
@@ -30,7 +30,7 @@ pub(crate) async fn auth(req: &mut AuthReq) -> TardisResult<AuthResp> {
     let cache_client = TardisFuns::cache_by_module_or_default(DOMAIN_CODE);
     match ident(req, config, cache_client).await {
         Ok(ident) => match do_auth(&ident).await {
-            Ok(res_container_leaf_info) => match decrypt(&req.headers, &req.body, config, &res_container_leaf_info).await {
+            Ok(res_container_leaf_info) => match decrypt(&req.headers, &req.body, config, &res_container_leaf_info, is_mix_req).await {
                 Ok((body, headers)) => Ok(AuthResp::ok(Some(&ident), body, headers, config)),
                 Err(e) => Ok(AuthResp::err(e, config)),
             },
@@ -71,8 +71,12 @@ async fn ident(req: &AuthReq, config: &AuthConfig, cache_client: &TardisCacheCli
     let rbum_action = req.method.to_lowercase();
 
     if let Some(token) = req.headers.get(&config.head_key_token) {
-        let account_id = if let Some(account_info) = cache_client.get(&format!("{}{}", config.cache_key_token_info, token)).await? {
-            let account_info = account_info.split(',').collect::<Vec<_>>();
+        let account_id = if let Some(token_value) = cache_client.get(&format!("{}{}", config.cache_key_token_info, token)).await? {
+            trace!("Token info: {}", token_value);
+            let account_info: Vec<&str> = token_value.split(',').collect::<Vec<_>>();
+            if account_info.len() > 2 {
+                cache_client.set_ex(&format!("{}{}", config.cache_key_token_info, token), &token_value, account_info[2].parse().unwrap()).await?;
+            }
             account_info[1].to_string()
         } else {
             return Err(TardisError::unauthorized(&format!("[Auth] Token [{token}] is not legal"), "401-auth-req-token-not-exist"));
@@ -229,7 +233,7 @@ pub async fn do_auth(ctx: &AuthContext) -> TardisResult<Option<ResContainerLeafI
             if let Some(matched_groups) = &auth.groups {
                 if let Some(iam_groups) = &ctx.groups {
                     for iam_group in iam_groups {
-                        if Regex::new(&format!(r"#{iam_group}.*#"))?.is_match(&matched_groups) {
+                        if Regex::new(&format!(r"#{iam_group}.*#"))?.is_match(matched_groups) {
                             return Ok(Some(matched_res));
                         }
                     }
@@ -261,7 +265,11 @@ pub async fn decrypt(
     body: &Option<String>,
     config: &AuthConfig,
     res_container_leaf_info: &Option<ResContainerLeafInfo>,
+    is_mix_req: bool,
 ) -> TardisResult<(Option<String>, Option<HashMap<String, String>>)> {
+    if is_mix_req {
+        return Ok((body.clone(), Some(headers.clone())));
+    }
     if let Some(res_container_leaf_info) = res_container_leaf_info {
         // The interface configuration specifies that the encryption must be done
         if res_container_leaf_info.need_crypto_req || res_container_leaf_info.need_crypto_resp {
@@ -270,9 +278,48 @@ pub async fn decrypt(
         }
     }
     // Or, the interface configuration does not require encryption, but the request comes with encrypted headers. (Content consultation mechanism)
-    if headers.contains_key(&config.head_key_crypto) {
-        let (body, headers) = auth_crypto_serv::decrypt_req(headers, body, true, true, config).await?;
+    if headers.contains_key(&config.head_key_crypto) || headers.contains_key(&config.head_key_crypto.to_lowercase()) {
+        //todo Because the return encryption has not yet been implemented, it has been temporarily modified.todo need_crypto_resp ->true
+        let (body, headers) = auth_crypto_serv::decrypt_req(headers, body, true, config.default_resp_crypto, config).await?;
         return Ok((body, headers));
     }
     Ok((None, None))
+}
+
+pub(crate) async fn parse_mix_req(req: AuthReq) -> TardisResult<MixAuthResp> {
+    let config = TardisFuns::cs_config::<AuthConfig>(DOMAIN_CODE);
+    let (body, headers) = auth_crypto_serv::decrypt_req(&req.headers, &req.body, true, true, config).await?;
+    let body = body.ok_or_else(|| TardisError::bad_request("[MixReq] decrypt body can't be empty", "401-parse_mix_req-parse-error"))?;
+
+    let mix_body = TardisFuns::json.str_to_obj::<MixRequestBody>(&body)?;
+    let mut headers = headers.unwrap_or_default();
+    headers.extend(mix_body.headers);
+    let auth_resp = auth(
+        &mut AuthReq {
+            scheme: req.scheme,
+            path: req.path,
+            query: req.query,
+            method: mix_body.method.clone(),
+            host: "".to_string(),
+            port: 80,
+            headers,
+            body: Some(mix_body.body),
+        },
+        true,
+    )
+    .await?;
+    let url = if let Some(0) = mix_body.uri.find('/') {
+        mix_body.uri
+    } else {
+        format!("/{}", mix_body.uri)
+    };
+    Ok(MixAuthResp {
+        url,
+        method: mix_body.method,
+        allow: auth_resp.allow,
+        status_code: auth_resp.status_code,
+        reason: auth_resp.reason,
+        headers: auth_resp.headers,
+        body: auth_resp.body,
+    })
 }

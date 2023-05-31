@@ -9,11 +9,11 @@ use tardis::web::poem_openapi;
 use tardis::web::web_resp::{TardisApiResult, TardisResp};
 use tardis::TardisFunsInst;
 
+#[cfg(feature = "spi_kv")]
+use crate::basic::serv::clients::spi_kv_client::SpiKvClient;
 use crate::basic::serv::iam_account_serv::IamAccountServ;
 use crate::basic::serv::iam_app_serv::IamAppServ;
 use crate::basic::serv::iam_tenant_serv::IamTenantServ;
-#[cfg(feature = "spi_kv")]
-use crate::basic::serv::spi_client::spi_kv_client::SpiKvClient;
 use crate::iam_config::IamConfig;
 use crate::iam_constants;
 
@@ -27,15 +27,30 @@ impl IamCsSpiDataApi {
     async fn init_spi_data(&self, ctx: TardisContextExtractor) -> TardisApiResult<Option<String>> {
         let mut funs = iam_constants::get_tardis_inst();
         funs.begin().await?;
-        Self::do_init_spi_data(&funs, &ctx.0).await?;
+        Self::do_init_spi_data(&funs, &ctx.0, false).await?;
         funs.commit().await?;
-        if let Some(task_id) = TaskProcessor::get_task_id_with_ctx(&ctx.0)? {
+        if let Some(task_id) = TaskProcessor::get_task_id_with_ctx(&ctx.0).await? {
             TardisResp::accepted(Some(task_id))
         } else {
             TardisResp::ok(None)
         }
     }
-    async fn do_init_spi_data(funs: &TardisFunsInst, ctx: &TardisContext) -> TardisResult<()> {
+
+    /// Do update Data
+    #[oai(path = "/", method = "patch")]
+    async fn update_spi_data(&self, ctx: TardisContextExtractor) -> TardisApiResult<Option<String>> {
+        let mut funs = iam_constants::get_tardis_inst();
+        funs.begin().await?;
+        Self::do_init_spi_data(&funs, &ctx.0, true).await?;
+        funs.commit().await?;
+        if let Some(task_id) = TaskProcessor::get_task_id_with_ctx(&ctx.0).await? {
+            TardisResp::accepted(Some(task_id))
+        } else {
+            TardisResp::ok(None)
+        }
+    }
+
+    async fn do_init_spi_data(funs: &TardisFunsInst, ctx: &TardisContext, is_modify: bool) -> TardisResult<()> {
         #[cfg(feature = "spi_kv")]
         {
             let task_ctx = ctx.clone();
@@ -45,109 +60,98 @@ impl IamCsSpiDataApi {
                     let mut funs = iam_constants::get_tardis_inst();
                     funs.begin().await?;
                     //app kv
-                    let mut next = true;
-                    let mut i = 1;
-                    while next {
-                        let page = IamAppServ::paginate_items(
-                            &IamAppFilterReq {
-                                basic: RbumBasicFilterReq {
-                                    ignore_scope: false,
-                                    rel_ctx_owner: false,
-                                    own_paths: Some(task_ctx.own_paths.clone()),
-                                    with_sub_own_paths: true,
-                                    ..Default::default()
-                                },
+
+                    let list = IamAppServ::find_items(
+                        &IamAppFilterReq {
+                            basic: RbumBasicFilterReq {
+                                ignore_scope: false,
+                                rel_ctx_owner: false,
+                                own_paths: Some(task_ctx.own_paths.clone()),
+                                with_sub_own_paths: true,
                                 ..Default::default()
                             },
-                            i,
-                            100,
-                            None,
-                            None,
+                            ..Default::default()
+                        },
+                        None,
+                        None,
+                        &funs,
+                        &task_ctx,
+                    )
+                    .await?;
+                    for app in list {
+                        SpiKvClient::add_or_modify_key_name(
+                            &format!("{}:{}", funs.conf::<IamConfig>().spi.kv_app_prefix.clone(), app.id),
+                            &app.name.clone(),
                             &funs,
                             &task_ctx,
                         )
                         .await?;
-                        if page.total_size / 100 < i as u64 {
-                            next = false;
-                        }
-                        i += 1;
-                        for app in page.records {
-                            SpiKvClient::add_or_modify_key_name(
-                                &format!("{}:{}", funs.conf::<IamConfig>().spi.kv_app_prefix.clone(), app.id),
-                                &app.name.clone(),
-                                &funs,
-                                &task_ctx,
-                            )
-                            .await?;
-                        }
                     }
+
                     //tenant kv
-                    let mut next = true;
-                    let mut i = 1;
-                    while next {
-                        let page = IamTenantServ::paginate_items(
-                            &IamTenantFilterReq {
-                                basic: RbumBasicFilterReq {
-                                    ignore_scope: false,
-                                    rel_ctx_owner: false,
-                                    own_paths: Some(task_ctx.own_paths.clone()),
-                                    with_sub_own_paths: true,
-                                    ..Default::default()
-                                },
+                    let list = IamTenantServ::find_items(
+                        &IamTenantFilterReq {
+                            basic: RbumBasicFilterReq {
+                                ignore_scope: false,
+                                rel_ctx_owner: false,
+                                own_paths: Some(task_ctx.own_paths.clone()),
+                                with_sub_own_paths: true,
                                 ..Default::default()
                             },
-                            i,
-                            100,
-                            None,
-                            None,
+                            ..Default::default()
+                        },
+                        None,
+                        None,
+                        &funs,
+                        &task_ctx,
+                    )
+                    .await?;
+                    for tenant in list {
+                        SpiKvClient::add_or_modify_key_name(
+                            &format!("{}:{}", funs.conf::<IamConfig>().spi.kv_tenant_prefix.clone(), tenant.name),
+                            &tenant.name.clone(),
                             &funs,
                             &task_ctx,
                         )
                         .await?;
-                        if page.total_size / 100 < i as u64 {
-                            next = false;
-                        }
-                        i += 1;
-                        for tenant in page.records {
-                            SpiKvClient::add_or_modify_key_name(
-                                &format!("{}:{}", funs.conf::<IamConfig>().spi.kv_tenant_prefix.clone(), tenant.name),
-                                &tenant.name.clone(),
-                                &funs,
-                                &task_ctx,
-                            )
-                            .await?;
-                        }
                     }
+
                     //account kv
-                    let mut next = true;
-                    let mut i = 1;
-                    while next {
-                        let page = IamAccountServ::paginate_items(
+                    let list = IamAccountServ::find_items(
+                        &IamAccountFilterReq {
+                            basic: RbumBasicFilterReq {
+                                ignore_scope: false,
+                                rel_ctx_owner: false,
+                                own_paths: Some(task_ctx.own_paths.clone()),
+                                with_sub_own_paths: true,
+                                ..Default::default()
+                            },
+                            ..Default::default()
+                        },
+                        None,
+                        None,
+                        &funs,
+                        &task_ctx,
+                    )
+                    .await?;
+                    for account in list {
+                        let account_resp = IamAccountServ::get_account_detail_aggs(
+                            &account.id,
                             &IamAccountFilterReq {
                                 basic: RbumBasicFilterReq {
-                                    ignore_scope: false,
-                                    rel_ctx_owner: false,
-                                    own_paths: Some(task_ctx.own_paths.clone()),
+                                    ignore_scope: true,
                                     with_sub_own_paths: true,
                                     ..Default::default()
                                 },
                                 ..Default::default()
                             },
-                            i,
-                            100,
-                            None,
-                            None,
+                            true,
+                            true,
                             &funs,
                             &task_ctx,
                         )
                         .await?;
-                        if page.total_size / 100 < i as u64 {
-                            next = false;
-                        }
-                        i += 1;
-                        for account in page.records {
-                            IamAccountServ::add_or_modify_account_search(&account.id, false, &funs, &task_ctx).await?;
-                        }
+                        IamAccountServ::add_or_modify_account_search(account_resp, is_modify, "", &funs, &task_ctx).await?;
                     }
                     funs.commit().await?;
                     Ok(())

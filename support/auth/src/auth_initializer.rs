@@ -32,13 +32,18 @@ pub async fn init_data() -> TardisResult<()> {
         "[Auth] Initializing full resource cache , interval [{}] secs fetch change resource cache.",
         config.cache_key_res_changed_timer_sec
     );
+    auth_res_serv::init_res()?;
     let mut cache_cmd = cache_client.cmd().await?;
     let mut res_iter: AsyncIter<'_, (String, String)> = cache_cmd.hscan(&config.cache_key_res_info).await?;
     while let Some((f, v)) = res_iter.next_item().await {
         let f = f.split("##").collect::<Vec<_>>();
         let info = TardisFuns::json.str_to_json(&v)?;
         let auth = if let Some(auth) = info.get("auth") {
-            Some(TardisFuns::json.json_to_obj(auth.clone())?)
+            if auth.is_null() {
+                None
+            } else {
+                Some(TardisFuns::json.json_to_obj(auth.clone())?)
+            }
         } else {
             None
         };
@@ -73,7 +78,11 @@ pub async fn init_data() -> TardisResult<()> {
                     if let Some(changed_value) = TardisFuns::cache_by_module_or_default(DOMAIN_CODE).hget(&config.cache_key_res_info, key).await.unwrap() {
                         let info = TardisFuns::json.str_to_json(&changed_value).unwrap();
                         let auth = if let Some(auth) = info.get("auth") {
-                            Some(TardisFuns::json.json_to_obj(auth.clone()).unwrap())
+                            if auth.is_null() {
+                                None
+                            } else {
+                                Some(TardisFuns::json.json_to_obj(auth.clone()).unwrap())
+                            }
                         } else {
                             None
                         };
@@ -105,6 +114,6 @@ pub async fn init_data() -> TardisResult<()> {
 }
 
 pub async fn init_api(web_server: &TardisWebServer) -> TardisResult<()> {
-    web_server.add_module(DOMAIN_CODE, (auth_mgr_api::MgrApi, auth_crypto_api::CryptoApi, auth_kernel_api::AuthApi)).await;
+    web_server.add_module(DOMAIN_CODE, (auth_mgr_api::MgrApi, auth_crypto_api::CryptoApi, auth_kernel_api::AuthApi), None).await;
     Ok(())
 }

@@ -3,9 +3,10 @@ use bios_basic::rbum::serv::rbum_item_serv::RbumItemCrudOperation;
 use tardis::basic::dto::TardisContext;
 use tardis::basic::field::TrimString;
 use tardis::basic::result::TardisResult;
+use tardis::log::info;
 use tardis::mail::mail_client::{TardisMailClient, TardisMailSendReq};
 use tardis::rand::Rng;
-use tardis::{TardisFuns, TardisFunsInst};
+use tardis::TardisFunsInst;
 
 use bios_basic::rbum::dto::rbum_cert_conf_dto::{RbumCertConfAddReq, RbumCertConfModifyReq};
 use bios_basic::rbum::dto::rbum_cert_dto::{RbumCertAddReq, RbumCertModifyReq};
@@ -14,11 +15,13 @@ use bios_basic::rbum::serv::rbum_cert_serv::{RbumCertConfServ, RbumCertServ};
 use bios_basic::rbum::serv::rbum_crud_serv::RbumCrudOperation;
 
 use crate::basic::dto::iam_cert_conf_dto::IamCertConfPhoneVCodeAddOrModifyReq;
-use crate::basic::dto::iam_cert_dto::IamCertPhoneVCodeAddReq;
+use crate::basic::dto::iam_cert_dto::{IamCertPhoneVCodeAddReq, IamCertPhoneVCodeModifyReq};
 use crate::basic::dto::iam_filer_dto::IamAccountFilterReq;
 use crate::iam_config::{IamBasicConfigApi, IamConfig};
 use crate::iam_enumeration::IamCertKernelKind;
 
+use super::clients::sms_client::SmsClient;
+use super::clients::spi_log_client::{LogParamTag, SpiLogClient};
 use super::iam_account_serv::IamAccountServ;
 use super::iam_cert_serv::IamCertServ;
 use super::iam_tenant_serv::IamTenantServ;
@@ -39,7 +42,7 @@ impl IamCertPhoneVCodeServ {
                 sk_rule: None,
                 ext: None,
                 sk_need: Some(false),
-                sk_dynamic: None,
+                sk_dynamic: Some(true),
                 sk_encrypted: Some(false),
                 repeatable: None,
                 is_basic: Some(false),
@@ -111,6 +114,7 @@ impl IamCertPhoneVCodeServ {
                 rel_rbum_kind: RbumCertRelKind::Item,
                 rel_rbum_id: account_id.to_string(),
                 is_outside: false,
+                is_ignore_check_sk: false,
             },
             funs,
             ctx,
@@ -118,6 +122,90 @@ impl IamCertPhoneVCodeServ {
         .await?;
         // TODO send vcode
         Self::send_activation_phone(account_id, &add_req.phone, &vcode, funs, ctx).await?;
+        Ok(id)
+    }
+
+    pub async fn modify_cert(id: &str, modify_req: &IamCertPhoneVCodeModifyReq, funs: &TardisFunsInst, ctx: &TardisContext) -> TardisResult<()> {
+        RbumCertServ::modify_rbum(
+            id,
+            &mut RbumCertModifyReq {
+                ak: Some(TrimString(modify_req.phone.to_string())),
+                sk: None,
+                ext: None,
+                start_time: None,
+                end_time: None,
+                conn_uri: None,
+                status: None,
+                is_ignore_check_sk: false,
+            },
+            funs,
+            ctx,
+        )
+        .await?;
+        Ok(())
+    }
+
+    pub async fn add_or_modify_cert(phone: &str, account_id: &str, rel_rbum_cert_conf_id: &str, funs: &TardisFunsInst, ctx: &TardisContext) -> TardisResult<()> {
+        let resp = IamCertServ::get_kernel_cert(account_id, &IamCertKernelKind::PhoneVCode, funs, ctx).await;
+        match resp {
+            Ok(cert) => {
+                Self::modify_cert(
+                    &cert.id,
+                    &IamCertPhoneVCodeModifyReq {
+                        phone: TrimString(phone.to_string()),
+                    },
+                    funs,
+                    ctx,
+                )
+                .await?;
+            }
+            Err(_) => {
+                Self::add_cert(
+                    &IamCertPhoneVCodeAddReq {
+                        phone: TrimString(phone.to_string()),
+                    },
+                    account_id,
+                    rel_rbum_cert_conf_id,
+                    funs,
+                    ctx,
+                )
+                .await?;
+            }
+        }
+        Ok(())
+    }
+
+    ///不需要验证直接添加cert
+    pub async fn add_cert_skip_vcode(
+        add_req: &IamCertPhoneVCodeAddReq,
+        account_id: &str,
+        rel_rbum_cert_conf_id: &str,
+        funs: &TardisFunsInst,
+        ctx: &TardisContext,
+    ) -> TardisResult<String> {
+        let vcode = Self::get_vcode();
+        let id = RbumCertServ::add_rbum(
+            &mut RbumCertAddReq {
+                ak: TrimString(add_req.phone.to_string()),
+                sk: None,
+                kind: None,
+                supplier: None,
+                vcode: Some(TrimString(vcode.clone())),
+                ext: None,
+                start_time: None,
+                end_time: None,
+                conn_uri: None,
+                status: RbumCertStatusKind::Enabled,
+                rel_rbum_cert_conf_id: Some(rel_rbum_cert_conf_id.to_string()),
+                rel_rbum_kind: RbumCertRelKind::Item,
+                rel_rbum_id: account_id.to_string(),
+                is_outside: false,
+                is_ignore_check_sk: false,
+            },
+            funs,
+            ctx,
+        )
+        .await?;
         Ok(id)
     }
 
@@ -129,29 +217,14 @@ impl IamCertPhoneVCodeServ {
 
     async fn send_activation_phone(account_id: &str, phone: &str, vcode: &str, funs: &TardisFunsInst, ctx: &TardisContext) -> TardisResult<()> {
         let account_name = IamAccountServ::peek_item(account_id, &IamAccountFilterReq::default(), funs, ctx).await?.name;
-        let mut subject = funs.conf::<IamConfig>().phone_template_cert_activate_title.clone();
-        let mut content = funs.conf::<IamConfig>().phone_template_cert_activate_content.clone();
-        subject = subject.replace("{account_name}", &account_name).replace("{vcode}", vcode);
-        content = content.replace("{account_name}", &account_name).replace("{vcode}", vcode);
-
-        TardisMailClient::send_quiet(
-            funs.module_code().to_string(),
-            TardisMailSendReq {
-                subject,
-                txt_body: content,
-                html_body: None,
-                to: vec![phone.to_string()],
-                reply_to: None,
-                cc: None,
-                bcc: None,
-                from: None,
-            },
-        )?;
+        // TODO send activation
+        SmsClient::send_vcode(phone, &vcode, funs, &ctx).await?;
         Ok(())
     }
 
     pub async fn activate_phone(phone: &str, input_vcode: &str, funs: &TardisFunsInst, ctx: &TardisContext) -> TardisResult<()> {
-        if let Some(cached_vcode) = RbumCertServ::get_and_delete_vcode_in_cache(phone, &ctx.own_paths, funs).await? {
+        let ctx = IamAccountServ::new_context_if_account_is_global(ctx, funs).await?;
+        if let Some(cached_vcode) = RbumCertServ::get_vcode_in_cache(phone, &ctx.own_paths, funs).await? {
             if cached_vcode == input_vcode {
                 let cert = RbumCertServ::find_one_rbum(
                     &RbumCertFilterReq {
@@ -159,12 +232,13 @@ impl IamCertPhoneVCodeServ {
                         status: Some(RbumCertStatusKind::Pending),
                         rel_rbum_kind: Some(RbumCertRelKind::Item),
                         rel_rbum_cert_conf_ids: Some(vec![
-                            IamCertServ::get_cert_conf_id_by_kind(IamCertKernelKind::PhoneVCode.to_string().as_str(), Some(IamTenantServ::get_id_by_ctx(ctx, funs)?), funs).await?,
+                            IamCertServ::get_cert_conf_id_by_kind(IamCertKernelKind::PhoneVCode.to_string().as_str(), Some(IamTenantServ::get_id_by_ctx(&ctx, funs)?), funs)
+                                .await?,
                         ]),
                         ..Default::default()
                     },
                     funs,
-                    ctx,
+                    &ctx,
                 )
                 .await?;
                 return if let Some(cert) = cert {
@@ -174,13 +248,14 @@ impl IamCertPhoneVCodeServ {
                             status: Some(RbumCertStatusKind::Enabled),
                             ak: None,
                             sk: None,
+                            is_ignore_check_sk: false,
                             ext: None,
                             start_time: None,
                             end_time: None,
                             conn_uri: None,
                         },
                         funs,
-                        ctx,
+                        &ctx,
                     )
                     .await?;
                     Ok(())
@@ -198,18 +273,18 @@ impl IamCertPhoneVCodeServ {
     }
 
     pub async fn send_bind_phone(phone: &str, funs: &TardisFunsInst, ctx: &TardisContext) -> TardisResult<()> {
-        // let ctx = IamAccountServ::new_context_if_account_is_global(ctx, funs).await?;
+        let ctx = IamAccountServ::new_context_if_account_is_global(ctx, funs).await?;
         if RbumCertServ::count_rbums(
             &RbumCertFilterReq {
                 ak: Some(phone.to_string()),
                 rel_rbum_kind: Some(RbumCertRelKind::Item),
                 rel_rbum_cert_conf_ids: Some(vec![
-                    IamCertServ::get_cert_conf_id_by_kind(IamCertKernelKind::PhoneVCode.to_string().as_str(), Some(IamTenantServ::get_id_by_ctx(ctx, funs)?), funs).await?,
+                    IamCertServ::get_cert_conf_id_by_kind(IamCertKernelKind::PhoneVCode.to_string().as_str(), Some(IamTenantServ::get_id_by_ctx(&ctx, funs)?), funs).await?,
                 ]),
                 ..Default::default()
             },
             funs,
-            ctx,
+            &ctx,
         )
         .await?
             > 0
@@ -218,28 +293,12 @@ impl IamCertPhoneVCodeServ {
         }
         let vcode = Self::get_vcode();
         RbumCertServ::add_vcode_to_cache(phone, &vcode, &ctx.own_paths, funs).await?;
-        let conf = funs.conf::<IamConfig>();
-        let ctx_base64 = &TardisFuns::crypto.base64.encode(&TardisFuns::json.obj_to_string(&ctx)?);
-        match funs
-            .web_client()
-            .put_str_to_str(
-                &format!("{}/{}/{}/{}", conf.sms_base_url, conf.sms_path, phone, &vcode),
-                "",
-                Some(vec![(
-                    TardisFuns::fw_config().web_server.context_conf.context_header_name.to_string(),
-                    ctx_base64.to_string(),
-                )]),
-            )
-            .await
-        {
-            Ok(_) => Ok(()),
-            Err(_) => Err(funs.err().unauthorized("iam_cert_phone_vcode", "activate", "send sms error", "401-iam-cert-valid")),
-        }
+        SmsClient::send_vcode(phone, &vcode, funs, &ctx).await
     }
 
     pub async fn bind_phone(phone: &str, input_vcode: &str, funs: &TardisFunsInst, ctx: &TardisContext) -> TardisResult<String> {
         let ctx = IamAccountServ::new_context_if_account_is_global(ctx, funs).await?;
-        if let Some(cached_vcode) = RbumCertServ::get_and_delete_vcode_in_cache(phone, &ctx.own_paths, funs).await? {
+        if let Some(cached_vcode) = RbumCertServ::get_vcode_in_cache(phone, &ctx.own_paths, funs).await? {
             if cached_vcode == input_vcode {
                 let rel_rbum_cert_conf_id =
                     IamCertServ::get_cert_conf_id_by_kind(IamCertKernelKind::PhoneVCode.to_string().as_str(), Some(IamTenantServ::get_id_by_ctx(&ctx, funs)?), funs).await?;
@@ -259,11 +318,15 @@ impl IamCertPhoneVCodeServ {
                         rel_rbum_kind: RbumCertRelKind::Item,
                         rel_rbum_id: ctx.owner.clone(),
                         is_outside: false,
+                        is_ignore_check_sk: false,
                     },
                     funs,
                     &ctx,
                 )
                 .await?;
+
+                let op_describe = format!("绑定手机号为{}", phone);
+                let _ = SpiLogClient::add_ctx_task(LogParamTag::IamAccount, Some(ctx.owner.to_string()), op_describe, Some("BindPhone".to_string()), &ctx).await;
                 return Ok(id);
             }
         }
@@ -301,29 +364,12 @@ impl IamCertPhoneVCodeServ {
 
         let vcode = Self::get_vcode();
         RbumCertServ::add_vcode_to_cache(phone, &vcode, &own_paths, funs).await?;
-        let conf = funs.conf::<IamConfig>();
-
-        let ctx_base64 = &TardisFuns::crypto.base64.encode(&TardisFuns::json.obj_to_string(&mock_ctx)?);
-        match funs
-            .web_client()
-            .put_str_to_str(
-                &format!("{}/{}/{}/{}", conf.sms_base_url, conf.sms_path, phone, &vcode),
-                "",
-                Some(vec![(
-                    TardisFuns::fw_config().web_server.context_conf.context_header_name.to_string(),
-                    ctx_base64.to_string(),
-                )]),
-            )
-            .await
-        {
-            Ok(_) => Ok(()),
-            Err(_) => Err(funs.err().unauthorized("iam_cert_phone_vcode", "activate", "send sms error", "401-iam-cert-valid")),
-        }
+        SmsClient::send_vcode(phone, &vcode, funs, &mock_ctx).await
     }
 
     fn get_vcode() -> String {
         let mut rand = tardis::rand::thread_rng();
-        let vcode: i32 = rand.gen_range(1000..9999);
+        let vcode: i32 = rand.gen_range(100000..999999);
         format!("{vcode}")
     }
 
@@ -352,5 +398,15 @@ impl IamCertPhoneVCodeServ {
         Ok(result)
     }
 
+    pub async fn send_pwd(account_id: &str, pwd: &str, funs: &TardisFunsInst, ctx: &TardisContext) -> TardisResult<()> {
+        let resp = IamCertServ::get_kernel_cert(account_id, &IamCertKernelKind::PhoneVCode, funs, ctx).await;
+        match resp {
+            Ok(cert) => {
+                let _ = SmsClient::send_pwd(&cert.ak, pwd, funs, ctx).await;
+            }
+            Err(_) => info!("phone pwd not found"),
+        }
+        Ok(())
+    }
     // TODO
 }

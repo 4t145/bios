@@ -41,18 +41,20 @@ async fn init_db(funs: &TardisFunsInst, ctx: &TardisContext) -> TardisResult<()>
 }
 
 async fn init_api(web_server: &TardisWebServer) -> TardisResult<()> {
-    web_server.add_module(DOMAIN_CODE, (spi_ci_bs_api::SpiCiBsApi, reldb_ci_exec_api::ReldbCiExecApi)).await;
+    web_server.add_module(DOMAIN_CODE, (spi_ci_bs_api::SpiCiBsApi, reldb_ci_exec_api::ReldbCiExecApi), None).await;
     Ok(())
 }
 
 pub async fn init_fun(bs_cert: SpiBsCertResp, ctx: &TardisContext, _: bool) -> TardisResult<SpiBsInst> {
     let ext = TardisFuns::json.str_to_json(&bs_cert.ext)?;
+    let compatible_type = TardisFuns::json.json_to_obj(ext.get("compatible_type").unwrap_or(&tardis::serde_json::Value::String("None".to_string())).clone())?;
     let client = TardisRelDBClient::init(
         &bs_cert.conn_uri,
         ext.get("max_connections").unwrap().as_u64().unwrap() as u32,
         ext.get("min_connections").unwrap().as_u64().unwrap() as u32,
         None,
         None,
+        compatible_type,
     )
     .await?;
     let ext = match bs_cert.kind_code.as_str() {

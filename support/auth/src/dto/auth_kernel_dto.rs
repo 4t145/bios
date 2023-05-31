@@ -9,7 +9,7 @@ use tardis::{
 
 use crate::auth_config::AuthConfig;
 
-#[derive(poem_openapi::Object, Serialize, Deserialize, Debug)]
+#[derive(poem_openapi::Object, Serialize, Deserialize, Debug, Clone)]
 pub struct AuthReq {
     pub scheme: String,
     pub path: String,
@@ -58,6 +58,8 @@ impl AuthResp {
                     roles: if let Some(roles) = &ctx.roles { roles.clone() } else { vec![] },
                     groups: if let Some(groups) = &ctx.groups { groups.clone() } else { vec![] },
                     ext: Default::default(),
+                    sync_task_fns: Default::default(),
+                    async_task_fns: Default::default(),
                 };
                 TardisFuns::crypto.base64.encode(&TardisFuns::json.obj_to_string(&ctx).unwrap())
             } else {
@@ -82,6 +84,17 @@ impl AuthResp {
             body: None,
         }
     }
+}
+
+#[derive(poem_openapi::Object, Serialize, Deserialize, Debug)]
+pub struct MixAuthResp {
+    pub url: String,
+    pub method: String,
+    pub allow: bool,
+    pub status_code: u16,
+    pub reason: Option<String>,
+    pub headers: HashMap<String, String>,
+    pub body: Option<String>,
 }
 
 pub struct AuthContext {
@@ -178,6 +191,28 @@ pub struct ResContainerLeafInfo {
     pub need_double_auth: bool,
 }
 
+#[derive(Serialize, Deserialize, Default)]
+pub(crate) struct ServConfig {
+    pub strict_security_mode: bool,
+    pub pub_key: String,
+    pub double_auth_exp_sec: u32,
+    pub apis: Vec<Api>,
+    pub login_req_method: String,
+    pub login_req_paths: Vec<String>,
+    pub logout_req_method: String,
+    pub logout_req_path: String,
+    pub double_auth_req_method: String,
+    pub double_auth_req_path: String,
+}
+#[derive(Serialize, Deserialize, Default, Clone)]
+pub(crate) struct Api {
+    pub action: String,
+    pub uri: String,
+    pub need_crypto_req: bool,
+    pub need_crypto_resp: bool,
+    pub need_double_auth: bool,
+}
+
 #[derive(Serialize, Deserialize, Clone, Debug)]
 pub struct ResAuthInfo {
     pub accounts: Option<String>,
@@ -185,4 +220,19 @@ pub struct ResAuthInfo {
     pub groups: Option<String>,
     pub apps: Option<String>,
     pub tenants: Option<String>,
+}
+
+#[derive(poem_openapi::Object, Serialize, Deserialize, Debug)]
+pub struct MixRequest {
+    pub body: String,
+    pub headers: HashMap<String, String>,
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug)]
+pub struct MixRequestBody {
+    pub method: String,
+    pub uri: String,
+    pub body: String,
+    pub headers: HashMap<String, String>,
+    pub ts: f64,
 }
