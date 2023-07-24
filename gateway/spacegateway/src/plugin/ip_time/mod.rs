@@ -13,6 +13,8 @@ pub const CODE: &str = "ip_time";
 pub struct SgFilterIpTimeDef;
 
 mod ip_time_rule;
+mod time_span_list;
+
 #[cfg(test)]
 mod tests;
 pub use ip_time_rule::IpTimeRule;
