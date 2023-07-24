@@ -45,6 +45,12 @@ ldap3 = { version = "0.11", optional = true }
 # todo Wait for tardis field to upgrade during removal
 nanoid = { version = "0.4" }
 [dev-dependencies]
+console-subscriber = "*"
+tracing-subscriber = "*"
 tardis = { workspace = true, features = ["test"] }
 bios-basic = { path = "../../basic", features = ["default", "test"] }
 bios-sdk-invoke = { path = "../../sdk/invoke", features = ["default"] }
+tokio = { version = "*", features = ["full", "tracing"] }
+[[test]]
+name = "test_iam_serv"
+path = "./tests/test_iam_serv.rs"

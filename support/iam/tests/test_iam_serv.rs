@@ -29,6 +29,7 @@ mod test_key_cache;
 
 #[tokio::test]
 async fn test_iam_serv() -> TardisResult<()> {
+
     env::set_var("RUST_LOG", "debug,test_iam_serv=trace,sqlx::query=off");
 
     let docker = testcontainers::clients::Cli::default();
@@ -48,7 +49,8 @@ async fn test_iam_serv() -> TardisResult<()> {
     )
     .await?
     .unwrap();
-
+    use tracing_subscriber::prelude::*;
+    console_subscriber::init();
     test_cp_all::test((&sysadmin_name, &sysadmin_password), &system_admin_context).await?;
 
     test_cs_tenant::test(&system_admin_context).await?;
@@ -126,6 +128,7 @@ async fn test_iam_serv() -> TardisResult<()> {
     test_key_cache::test(&system_admin_context).await?;
     // test_iam_oauth2::test(&tenant1_admin_context).await?;
     let conf_ldap_add_or_modify_req = test_basic::gen_test_ldap_conf();
+
     test_iam_cert_sync::test(test_basic::LDAP_ACCOUNT_NUB, conf_ldap_add_or_modify_req, &system_admin_context).await;
     Ok(())
 }
