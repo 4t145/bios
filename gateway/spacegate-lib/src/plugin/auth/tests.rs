@@ -64,6 +64,7 @@ async fn test_auth_plugin_ctx() {
         "127.0.0.1:8080".parse().unwrap(),
         "".to_string(),
         None,
+        None,
     );
     let (is_ok, mut before_filter_ctx) = filter_auth.req_filter("", ctx).await.unwrap();
     assert!(!is_ok);
@@ -92,6 +93,7 @@ async fn test_auth_plugin_ctx() {
         Body::from("test"),
         "127.0.0.1:8080".parse().unwrap(),
         "".to_string(),
+        None,
         None,
     );
     let (is_ok, before_filter_ctx) = filter_auth.req_filter("", ctx).await.unwrap();
@@ -122,6 +124,7 @@ async fn test_auth_plugin_ctx() {
         Body::from("test"),
         "127.0.0.1:8080".parse().unwrap(),
         "".to_string(),
+        None,
         None,
     );
     let (is_ok, before_filter_ctx) = filter_auth.req_filter("", ctx).await.unwrap();
@@ -166,6 +169,7 @@ async fn test_auth_plugin_crypto() {
         "127.0.0.1:8080".parse().unwrap(),
         "".to_string(),
         None,
+        None,
     );
     let (_, mut before_filter_ctx) = filter_auth.req_filter("", ctx).await.unwrap();
     let mut server_config_resp = before_filter_ctx.build_response().await.unwrap();
@@ -193,6 +197,7 @@ async fn test_auth_plugin_crypto() {
         "127.0.0.1:8080".parse().unwrap(),
         "".to_string(),
         None,
+        None,
     );
     let (is_ok, mut before_filter_ctx) = filter_auth.req_filter("", ctx).await.unwrap();
     assert!(is_ok);
@@ -214,6 +219,7 @@ async fn test_auth_plugin_crypto() {
         Body::empty(),
         "127.0.0.1:8080".parse().unwrap(),
         "".to_string(),
+        None,
         None,
     );
     let (is_ok, mut before_filter_ctx) = filter_auth.req_filter("", ctx).await.unwrap();
@@ -238,6 +244,7 @@ async fn test_auth_plugin_crypto() {
         Body::from(crypto_data),
         "127.0.0.1:8080".parse().unwrap(),
         "".to_string(),
+        None,
         None,
     );
     let (is_ok, mut before_filter_ctx) = filter_auth.req_filter("", ctx).await.unwrap();
@@ -304,6 +311,7 @@ async fn test_auth_plugin_strict_security_mode_crypto() {
         "127.0.0.1:8080".parse().unwrap(),
         "".to_string(),
         None,
+        None,
     );
     let (_, mut before_filter_ctx) = filter_auth.req_filter("", ctx).await.unwrap();
     let mut server_config_resp = before_filter_ctx.build_response().await.unwrap();
@@ -346,6 +354,7 @@ async fn test_auth_plugin_strict_security_mode_crypto() {
         Body::from(crypto_body),
         "127.0.0.1:8080".parse().unwrap(),
         "".to_string(),
+        None,
         None,
     );
     let (is_ok, before_filter_ctx) = filter_auth.req_filter("", ctx).await.unwrap();

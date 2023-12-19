@@ -147,6 +147,8 @@ mod tests {
             "127.0.0.1:8080".parse().unwrap(),
             gateway_name.to_string(),
             None,
+            None
+
         );
         let first_req = sg_filter_anti_replay.req_filter("", ctx).await;
         assert!(first_req.is_ok());
@@ -161,6 +163,7 @@ mod tests {
             "127.0.0.1:8080".parse().unwrap(),
             gateway_name.to_string(),
             None,
+            None
         );
         assert!(sg_filter_anti_replay.req_filter("", ctx).await.is_err());
         let ctx = SgRoutePluginContext::new_http(
@@ -172,6 +175,7 @@ mod tests {
             "192.168.1.1:8080".parse().unwrap(),
             gateway_name.to_string(),
             None,
+            None
         );
         assert!(sg_filter_anti_replay.req_filter("", ctx).await.is_ok());
         tokio::time::sleep(Duration::from_millis(sg_filter_anti_replay.time)).await;
@@ -184,6 +188,7 @@ mod tests {
             "127.0.0.1:8080".parse().unwrap(),
             gateway_name.to_string(),
             None,
+            None
         );
         assert!(sg_filter_anti_replay.req_filter("", ctx).await.is_ok());
     }

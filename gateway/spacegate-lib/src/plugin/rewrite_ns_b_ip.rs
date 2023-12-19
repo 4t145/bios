@@ -115,6 +115,7 @@ mod test {
             "198.168.1.1:8080".parse().unwrap(),
             "".to_string(),
             None,
+            None
         );
         let back_inst = SgBackendInst {
             name_or_host: "test".to_string(),

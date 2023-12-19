@@ -4,7 +4,6 @@ use std::str::FromStr;
 
 use async_trait::async_trait;
 
-use bios_sdk_invoke::clients::spi_log_client;
 use bios_sdk_invoke::invoke_config::InvokeConfig;
 use bios_sdk_invoke::invoke_enumeration::InvokeModuleKind;
 use bios_sdk_invoke::invoke_initializer;
@@ -17,8 +16,7 @@ use spacegate_kernel::plugins::{
     context::SgRoutePluginContext,
     filters::{SgPluginFilter, SgPluginFilterAccept, SgPluginFilterInitDto},
 };
-use tardis::basic::dto::TardisContext;
-use tardis::serde_json::{json, Value};
+use tardis::serde_json::Value;
 
 use tardis::basic::error::TardisError;
 use tardis::{
@@ -26,20 +24,20 @@ use tardis::{
     basic::result::TardisResult,
     log,
     serde_json::{self},
-    tokio::{self},
     TardisFuns, TardisFunsInst,
 };
 
 use super::plugin_constants;
+
+pub mod log_backend;
 
 def_filter!("audit_log", SgFilterAuditLogDef, SgFilterAuditLog);
 
 #[derive(Serialize, Deserialize)]
 #[serde(default)]
 pub struct SgFilterAuditLog {
-    log_url: String,
-    spi_app_id: String,
-    tag: String,
+    #[serde(flatten)]
+    backend: log_backend::LogBackendEnum,
     header_token_name: String,
     success_json_path: String,
     success_json_path_values: Vec<String>,
@@ -49,7 +47,6 @@ pub struct SgFilterAuditLog {
     #[serde(skip)]
     jsonpath_inst: Option<JsonPathInst>,
 }
-
 impl SgFilterAuditLog {
     async fn get_log_content(&self, end_time: i64, ctx: &mut SgRoutePluginContext) -> TardisResult<LogParamContent> {
         let start_time = ctx.get_ext(&get_start_time_ext_code()).and_then(|time| time.parse::<i64>().ok());
@@ -59,41 +56,21 @@ impl SgFilterAuditLog {
             let body = ctx.response.dump_body().await?;
             serde_json::from_slice::<Value>(&body)
         };
-        let success = match body_string {
-            Ok(json) => {
-                if let Some(jsonpath_inst) = &self.jsonpath_inst {
-                    if let Some(matching_value) = jsonpath_inst.find_slice(&json).get(0) {
-                        if matching_value.is_string() {
-                            let mut is_match = false;
-                            for value in self.success_json_path_values.clone() {
-                                if Some(value.as_str()) == matching_value.as_str() {
-                                    is_match = true;
-                                    break;
-                                }
-                            }
-                            is_match
-                        } else if matching_value.is_number() {
-                            let mut is_match = false;
-                            for value in self.success_json_path_values.clone() {
-                                let value = value.parse::<i64>();
-                                if value.is_ok() && value.ok() == matching_value.as_i64() {
-                                    is_match = true;
-                                    break;
-                                }
-                            }
-                            is_match
-                        } else {
-                            false
-                        }
+        let success = body_string
+            .ok()
+            .and_then(|json| {
+                self.jsonpath_inst.as_ref().and_then(|inst| inst.find_slice(&json).into_iter().next()).map(|matched| {
+                    if matched.is_string() {
+                        matched.as_str().map(|matched| self.success_json_path_values.iter().any(|v| v == matched))
+                    } else if matched.is_number() {
+                        matched.as_i64().map(|matched| self.success_json_path_values.iter().filter_map(|v| v.parse::<i64>().ok()).any(|v| v == matched))
                     } else {
-                        false
+                        None
                     }
-                } else {
-                    false
-                }
-            }
-            Err(_) => false,
-        };
+                })
+            })
+            .flatten()
+            .unwrap_or(false);
         Ok(LogParamContent {
             op: ctx.request.get_method().to_string(),
             key: None,
@@ -118,9 +95,7 @@ impl SgFilterAuditLog {
 impl Default for SgFilterAuditLog {
     fn default() -> Self {
         Self {
-            log_url: "".to_string(),
-            spi_app_id: "".to_string(),
-            tag: "gateway".to_string(),
+            backend: Default::default(),
             header_token_name: "Bios-Token".to_string(),
             success_json_path: "$.code".to_string(),
             enabled: false,
@@ -141,25 +116,29 @@ impl SgPluginFilter for SgFilterAuditLog {
     }
 
     async fn init(&mut self, _: &SgPluginFilterInitDto) -> TardisResult<()> {
-        if !self.log_url.is_empty() && !self.spi_app_id.is_empty() {
-            if let Ok(jsonpath_inst) = JsonPathInst::from_str(&self.success_json_path).map_err(|e| log::error!("[Plugin.AuditLog] invalid json path:{e}")) {
-                self.jsonpath_inst = Some(jsonpath_inst);
-            } else {
-                self.enabled = false;
-                return Ok(());
-            };
-            self.enabled = true;
-            invoke_initializer::init(
-                CODE,
-                InvokeConfig {
-                    spi_app_id: self.spi_app_id.clone(),
-                    module_urls: HashMap::from([(InvokeModuleKind::Log.to_string(), self.log_url.clone())]),
-                },
-            )?;
-            Ok(())
+        self.enabled = true;
+        if let Ok(jsonpath_inst) = JsonPathInst::from_str(&self.success_json_path).map_err(|e| log::error!("[Plugin.AuditLog] invalid json path:{e}")) {
+            self.jsonpath_inst = Some(jsonpath_inst);
         } else {
             self.enabled = false;
-            Err(TardisError::bad_request("[Plugin.AuditLog] plugin is not active, miss log_url or spi_app_id.", ""))
+        };
+        match self.backend {
+            log_backend::LogBackendEnum::Spi(ref mut spi) => {
+                if !spi.log_url.is_empty() && !spi.spi_app_id.is_empty() {
+                    invoke_initializer::init(
+                        CODE,
+                        InvokeConfig {
+                            spi_app_id: spi.spi_app_id.clone(),
+                            module_urls: HashMap::from([(InvokeModuleKind::Log.to_string(), spi.log_url.clone())]),
+                        },
+                    )?;
+                    Ok(())
+                } else {
+                    self.enabled = false;
+                    Err(TardisError::bad_request("[Plugin.AuditLog] plugin is not active, miss log_url or spi_app_id.", ""))
+                }
+            }
+            log_backend::LogBackendEnum::Tracing(_) => Ok(()),
         }
     }
 
@@ -180,53 +159,9 @@ impl SgPluginFilter for SgFilterAuditLog {
                     return Ok((true, ctx));
                 }
             }
-            let funs = get_tardis_inst();
             let end_time = tardis::chrono::Utc::now().timestamp_millis();
-            let spi_ctx = TardisContext {
-                owner: ctx.get_cert_info().map(|info| info.id.clone()).unwrap_or_default(),
-                roles: ctx.get_cert_info().map(|info| info.roles.clone().into_iter().map(|r| r.id).collect()).unwrap_or_default(),
-                ..Default::default()
-            };
-            let op = ctx.request.get_method().to_string();
-
             let content = self.get_log_content(end_time, &mut ctx).await?;
-
-            let log_ext = json!({
-                "name":content.name,
-                "id":content.user_id,
-                "ip":content.ip,
-                "op":op.clone(),
-                "path":content.path,
-                "resp_status": content.resp_status,
-                "success":content.success,
-            });
-            let tag = self.tag.clone();
-            tokio::task::spawn(async move {
-                match spi_log_client::SpiLogClient::add(
-                    &tag,
-                    &TardisFuns::json.obj_to_string(&content).unwrap_or_default(),
-                    Some(log_ext),
-                    None,
-                    None,
-                    Some(op),
-                    None,
-                    Some(tardis::chrono::Utc::now().to_rfc3339()),
-                    content.user_id,
-                    None,
-                    &funs,
-                    &spi_ctx,
-                )
-                .await
-                {
-                    Ok(_) => {
-                        log::trace!("[Plugin.AuditLog] add log success")
-                    }
-                    Err(e) => {
-                        log::warn!("[Plugin.AuditLog] failed to add log:{e}")
-                    }
-                };
-            });
-
+            self.backend.log(content, &ctx)?;
             Ok((true, ctx))
         } else {
             Ok((true, ctx))
@@ -242,7 +177,7 @@ fn get_start_time_ext_code() -> String {
     format!("{CODE}:start_time")
 }
 
-#[derive(Serialize, Deserialize)]
+#[derive(Serialize, Deserialize, Debug)]
 pub struct LogParamContent {
     pub op: String,
     pub key: Option<String>,
@@ -277,11 +212,7 @@ mod test {
     async fn test_log_content() {
         let ent_time = std::time::Instant::now();
         println!("test_log_content");
-        let mut sg_filter_audit_log = SgFilterAuditLog {
-            log_url: "xxx".to_string(),
-            spi_app_id: "xxx".to_string(),
-            ..Default::default()
-        };
+        let mut sg_filter_audit_log = SgFilterAuditLog::default();
         sg_filter_audit_log
             .init(&SgPluginFilterInitDto {
                 gateway_name: "".to_string(),
@@ -310,6 +241,7 @@ mod test {
                 "127.0.0.1:8080".parse().unwrap(),
                 "".to_string(),
                 None,
+                None,
             );
             ctx.set_ext(&get_start_time_ext_code(), &20000.to_string());
             let mut ctx = ctx.resp(StatusCode::OK, HeaderMap::new(), Body::from(r#"{"code":"200","msg":"success"}"#));
@@ -329,6 +261,7 @@ mod test {
                 "127.0.0.1:8080".parse().unwrap(),
                 "".to_string(),
                 None,
+                None,
             );
             let mut ctx = ctx.resp(StatusCode::OK, HeaderMap::new(), Body::from(r#"{"code":200,"msg":"success"}"#));
             let log_content = sg_filter_audit_log.get_log_content(end_time, &mut ctx).await.unwrap();
@@ -345,6 +278,7 @@ mod test {
                 "127.0.0.1:8080".parse().unwrap(),
                 "".to_string(),
                 None,
+                None,
             );
             let mut ctx = ctx.resp(StatusCode::OK, HeaderMap::new(), Body::from(r#"{"code":"500","msg":"not success"}"#));
             let log_content = sg_filter_audit_log.get_log_content(end_time, &mut ctx).await.unwrap();
@@ -360,6 +294,7 @@ mod test {
                 Body::from(""),
                 "127.0.0.1:8080".parse().unwrap(),
                 "".to_string(),
+                None,
                 None,
             );
             let mut ctx = ctx.resp(StatusCode::OK, HeaderMap::new(), Body::from(r#"{"code":500,"msg":"not success"}"#));
