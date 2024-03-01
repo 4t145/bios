@@ -60,12 +60,20 @@ pub async fn add_sender(topic_code: String, capacity: usize) {
     wg.insert(topic_code.clone(), clst_bc_tx);
     drop(wg);
     if TardisFuns::fw_config().cluster.is_some() {
-        let _ = publish_event_no_response(
+        let resp = publish_event_no_response(
             CreateRemoteSenderSubscriber.event_name(),
             TardisFuns::json.obj_to_json(&CreateRemoteSenderEvent { topic_code, capacity }).expect("invalid json"),
             ClusterEventTarget::Broadcast,
         )
         .await;
+        match resp {
+            Ok(_) => {
+
+            },
+            Err(e) => {
+                tardis::log::error!("[Bios.Event] Fail to create remote sender: {e}")
+            },
+        }
     }
 }
 
